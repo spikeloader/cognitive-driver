@@ -1,0 +1,16 @@
+# TYPE nginx_connections_accepted counter
+nginx_connections_accepted 1.6630948e+07
+# TYPE nginx_connections_active gauge
+nginx_connections_active 291
+# TYPE nginx_connections_handled counter
+nginx_connections_handled 1.6630946e+07
+# TYPE nginx_connections_reading gauge
+nginx_connections_reading 6
+# TYPE nginx_connections_waiting gauge
+nginx_connections_waiting 106
+# TYPE nginx_connections_writing gauge
+nginx_connections_writing 179
+# TYPE nginx_http_requests_total counter
+nginx_http_requests_total 3.1070465e+07
+# TYPE nginx_up gauge
+nginx_up 1

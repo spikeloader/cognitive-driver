@@ -1,0 +1,62 @@
+# Driver dos jobs de cron. Lê, pelo node_exporter dos hosts (collector.targets),
+# as métricas que o cron-wrap grava no textfile collector; cada job gera os
+# próprios eventos (group_by: job). Instalação nos hosts:
+#   sudo scripts/wrap-cron-d.sh            # mostra o que mudaria em /etc/cron.d
+#   sudo scripts/wrap-cron-d.sh --apply    # aplica (backup em /var/backups)
+# Os alertas de atraso, travamento e duração dependem do intervalo esperado
+# (-i), deduzido do agendamento; jobs com agendamento irregular só têm o de falha.
+drivers:
+  - name: ai-cron-health
+    version: 0.1.0
+    mode: observe_only
+    metrics:
+      # Última execução terminou com código diferente de 0.
+      - name: cron_job_last_exit_code
+        alias: cron_job_failed
+        group_by: [job]
+        rule: {above: 0, severity: high}
+        describe:
+          label: Código de saída do job cron
+          unit: count
+          up:
+            cause: O script terminou com erro (exceção, dependência indisponível, permissão, timeout interno).
+            recommendation: Ver a saída do job (MAILTO, log do script ou journalctl -t CRON) e reexecutar manualmente com o usuário do crontab.
+      # Tempo desde o último início em relação ao intervalo esperado: acima
+      # de 2 o cron deixou de executar o job ao menos duas vezes.
+      - name: cron_job_last_run_timestamp_seconds
+        type: timestamp
+        alias: cron_job_overdue
+        group_by: [job]
+        divide_by: {name: cron_job_expected_interval_seconds}
+        rule: {above: 2, severity: high}
+        describe:
+          label: Tempo sem executar o job cron (proporção do intervalo)
+          unit: ratio
+          up:
+            cause: O cron não está iniciando o job (daemon parado, linha removida ou comentada, arquivo em /etc/cron.d com permissão ou nome inválido).
+            recommendation: Verificar systemctl status cron, a linha em /etc/cron.d e grep CRON /var/log/syslog. Se o job foi removido de propósito, apagar o cron_<job>.prom do textfile collector.
+      # Execução atual dura mais que o intervalo: travou ou vai se sobrepor à próxima.
+      - name: cron_job_running_since_timestamp_seconds
+        type: timestamp
+        alias: cron_job_stuck
+        group_by: [job]
+        divide_by: {name: cron_job_expected_interval_seconds}
+        rule: {above: 1, severity: high}
+        describe:
+          label: Execução em andamento do job cron (proporção do intervalo)
+          unit: ratio
+          up:
+            cause: O job está travado (lock, rede, banco) ou ficou mais lento que o próprio agendamento, e as execuções vão se sobrepor.
+            recommendation: Localizar o processo (ps -ef --forest), ver em que está bloqueado (strace -p, lsof -p) e considerar flock -n na linha do cron para evitar sobreposição.
+      # A última execução ocupou quase todo o intervalo.
+      - name: cron_job_last_duration_seconds
+        alias: cron_job_duration_ratio
+        group_by: [job]
+        divide_by: {name: cron_job_expected_interval_seconds}
+        rule: {above: 0.8, severity: medium}
+        describe:
+          label: Duração do job cron (proporção do intervalo)
+          unit: ratio
+          up:
+            cause: O volume processado pelo job cresceu ou uma dependência ficou lenta; logo ele não caberá no intervalo.
+            recommendation: Comparar a duração com execuções anteriores, revisar consultas e lotes do script ou espaçar o agendamento.

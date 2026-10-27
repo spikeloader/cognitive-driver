@@ -1,0 +1,17 @@
+# Saída de deploy/swoole/metrics.php.
+# TYPE swoole_connections gauge
+swoole_connections{server="api"} 120
+# TYPE swoole_requests_total counter
+swoole_requests_total{server="api"} 50000
+# TYPE swoole_workers gauge
+swoole_workers{server="api"} 8
+# TYPE swoole_workers_idle gauge
+swoole_workers_idle{server="api"} 0
+# TYPE swoole_workers_busy_ratio gauge
+swoole_workers_busy_ratio{server="api"} 1
+# TYPE swoole_coroutines gauge
+swoole_coroutines{server="api"} 340
+# TYPE swoole_task_queue gauge
+swoole_task_queue{server="api"} 0
+# TYPE swoole_tasking_workers gauge
+swoole_tasking_workers{server="api"} 0

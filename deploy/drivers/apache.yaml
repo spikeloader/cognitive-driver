@@ -1,0 +1,30 @@
+# Driver do Apache. Requer o prometheus-apache-exporter lendo o mod_status
+# (sudo scripts/enable-service.sh apache faz toda a configuração).
+drivers:
+  - name: ai-apache-health
+    version: 0.1.0
+    mode: observe_only
+    targets:
+      - host: local
+        url: http://127.0.0.1:9117/metrics
+    metrics:
+      # Disponibilidade: apache_up=0 quando o exporter não consegue ler /server-status.
+      - name: apache_up
+        rule: {equals: 1, severity: critical}
+      # Requisições por segundo (pico ou queda de tráfego).
+      - apache_accesses_total
+      # Workers ocupados (backend lento, aumento de carga).
+      - name: apache_workers
+        alias: apache_workers_busy
+        match: {state: busy}
+        min_stddev: 1
+      # Saturação: workers ocupados / slots do scoreboard acima de 90%.
+      - name: apache_workers
+        alias: apache_workers_busy_ratio
+        match: {state: busy}
+        divide_by: {name: apache_scoreboard}
+        rule: {above: 0.9, severity: high}
+      # Latência média por requisição (ms), derivada de duration / accesses.
+      - name: apache_duration_ms_total
+        alias: apache_request_duration_ms
+        divide_by: {name: apache_accesses_total}

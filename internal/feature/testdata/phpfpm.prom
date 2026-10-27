@@ -1,0 +1,22 @@
+# HELP phpfpm_up Could PHP-FPM be reached?
+# TYPE phpfpm_up gauge
+phpfpm_up{pool="www",scrape_uri="unix:///run/php/php8.3-fpm.sock;/status"} 1
+phpfpm_up{pool="api",scrape_uri="unix:///run/php/api.sock;/status"} 1
+# TYPE phpfpm_accepted_connections counter
+phpfpm_accepted_connections{pool="www",scrape_uri="unix:///run/php/php8.3-fpm.sock;/status"} 10000
+phpfpm_accepted_connections{pool="api",scrape_uri="unix:///run/php/api.sock;/status"} 5000
+# TYPE phpfpm_active_processes gauge
+phpfpm_active_processes{pool="www",scrape_uri="unix:///run/php/php8.3-fpm.sock;/status"} 19
+phpfpm_active_processes{pool="api",scrape_uri="unix:///run/php/api.sock;/status"} 2
+# TYPE phpfpm_total_processes gauge
+phpfpm_total_processes{pool="www",scrape_uri="unix:///run/php/php8.3-fpm.sock;/status"} 20
+phpfpm_total_processes{pool="api",scrape_uri="unix:///run/php/api.sock;/status"} 10
+# TYPE phpfpm_listen_queue gauge
+phpfpm_listen_queue{pool="www",scrape_uri="unix:///run/php/php8.3-fpm.sock;/status"} 4
+phpfpm_listen_queue{pool="api",scrape_uri="unix:///run/php/api.sock;/status"} 0
+# TYPE phpfpm_max_children_reached counter
+phpfpm_max_children_reached{pool="www",scrape_uri="unix:///run/php/php8.3-fpm.sock;/status"} 7
+phpfpm_max_children_reached{pool="api",scrape_uri="unix:///run/php/api.sock;/status"} 0
+# TYPE phpfpm_slow_requests counter
+phpfpm_slow_requests{pool="www",scrape_uri="unix:///run/php/php8.3-fpm.sock;/status"} 3
+phpfpm_slow_requests{pool="api",scrape_uri="unix:///run/php/api.sock;/status"} 0

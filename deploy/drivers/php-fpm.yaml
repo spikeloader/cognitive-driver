@@ -1,0 +1,75 @@
+# Driver do PHP-FPM. Requer o php-fpm_exporter (hipages/php-fpm_exporter) em
+# 127.0.0.1:9253 lendo o pm.status_path de cada pool, por exemplo:
+#   php-fpm_exporter server --phpfpm.scrape-uri "unix:///run/php/php8.3-fpm.sock;/status"
+# e, no pool: pm.status_path = /status. Cada pool gera os próprios eventos.
+# mod_php não usa o FPM: é coberto pelo driver do Apache.
+drivers:
+  - name: ai-php-fpm-health
+    version: 0.1.0
+    mode: observe_only
+    targets:
+      - host: local
+        url: http://127.0.0.1:9253/metrics
+    metrics:
+      # Disponibilidade: o exporter publica phpfpm_up=0 quando não lê o status do pool.
+      - name: phpfpm_up
+        group_by: [pool]
+        rule: {equals: 1, severity: critical}
+        describe:
+          label: PHP-FPM disponível
+          unit: bool
+          down:
+            cause: O pool do PHP-FPM está parado ou o status não responde (socket, permissão, pm.status_path).
+            recommendation: Verificar systemctl status php*-fpm, o log do FPM e o socket/porta configurado no exporter.
+      # pm.max_children atingido: requisições esperam por um processo livre.
+      - name: phpfpm_max_children_reached
+        type: counter
+        group_by: [pool]
+        rule: {above: 0, severity: high}
+        describe:
+          label: Limite de processos do PHP-FPM atingido
+          unit: per_second
+          up:
+            cause: Todos os processos do pool ficaram ocupados (pico de tráfego ou requisições lentas segurando processos).
+            recommendation: Ver o slowlog do pool e a latência de banco/APIs; se a carga for legítima e houver memória, aumentar pm.max_children.
+      # Requisições na fila do listen (backlog) de forma sustentada.
+      - name: phpfpm_listen_queue
+        group_by: [pool]
+        rule: {above: 0, severity: high}
+        describe:
+          label: Fila de conexões do PHP-FPM
+          unit: count
+          up:
+            cause: O pool não está aceitando conexões na velocidade em que chegam; usuários sentem latência ou 502/504.
+            recommendation: Correlacionar com processos ativos e max_children_reached; verificar requisições lentas e o tamanho do pool.
+      # Saturação: processos ativos / total acima de 90%.
+      - name: phpfpm_active_processes
+        alias: phpfpm_busy_ratio
+        group_by: [pool]
+        divide_by: {name: phpfpm_total_processes}
+        rule: {above: 0.9, severity: high}
+        describe:
+          label: Ocupação dos processos do PHP-FPM
+          unit: ratio
+          up:
+            cause: Quase todos os processos do pool estão ocupados; novos picos vão gerar fila.
+            recommendation: Ver o slowlog e o tempo de resposta das dependências; ajustar pm.max_children se a carga for legítima.
+      # Requisições acima de request_slowlog_timeout.
+      - name: phpfpm_slow_requests
+        type: counter
+        group_by: [pool]
+        rule: {above: 0, severity: medium}
+        describe:
+          label: Requisições lentas do PHP-FPM
+          unit: per_second
+          up:
+            cause: Scripts excederam request_slowlog_timeout (consulta lenta, API externa, lock).
+            recommendation: Ler o slowlog do pool (stack trace de cada requisição lenta) e atacar as funções que aparecem com frequência.
+      # Requisições por segundo (pico ou queda de tráfego).
+      - name: phpfpm_accepted_connections
+        type: counter
+        alias: phpfpm_requests
+        group_by: [pool]
+        describe:
+          label: Requisições do PHP-FPM
+          unit: per_second

@@ -1,0 +1,55 @@
+# Configuração do cognitive-driver (micro-IA de observabilidade).
+
+service:
+  data_dir: ./data              # SQLite com eventos e baselines
+  log_level: info               # debug | info | warn | error
+  baseline_save_interval: 1m    # frequência de persistência da baseline
+
+collector:
+  interval: 15s
+  timeout: 5s
+  targets:
+    - host: local
+      url: http://localhost:9100/metrics
+
+api:
+  listen: ":8088"
+  auth_token_env: MICRO_AI_TOKEN  # vazio = /predict e /events sem autenticação
+
+# Cada driver é uma micro-IA independente; enabled: false o desativa.
+# Métricas aceitam a forma curta (nome) ou a forma com filtros de labels
+# (regex ancorada). Contadores (_total) são convertidos em taxa por segundo
+# e as séries filtradas são somadas.
+drivers:
+  - name: ai-host-health
+    version: 0.1.0
+    enabled: true
+    mode: observe_only
+    window_sizes: [1m, 5m, 15m]
+    decision_window: 5m         # janela usada na decisão; as demais viram evidência
+    anomaly_threshold: 3.0
+    consecutive_points: 3
+    cooldown: 5m
+    warmup_points: 20           # pontos mínimos antes de detectar (~5 min a 15s)
+    min_stddev_ratio: 0.01      # piso do desvio-padrão como fração da média
+    baseline_freeze_points: 10  # pontos anômalos seguidos fora da baseline (~2,5 min)
+    metrics:
+      - name: node_cpu_seconds_total          # núcleos ocupados
+        exclude: {mode: "idle|iowait|steal"}
+      - node_memory_MemAvailable_bytes
+      - name: node_network_receive_bytes_total
+        exclude: {device: "lo|veth.*|docker.*|br-.*|virbr.*"}
+
+  - name: ai-disk-health
+    version: 0.1.0
+    enabled: true
+    mode: observe_only
+    window_sizes: [1m, 5m, 15m]
+    decision_window: 5m
+    anomaly_threshold: 3.0
+    consecutive_points: 3
+    cooldown: 5m
+    warmup_points: 20
+    metrics:
+      - name: node_disk_io_time_seconds_total  # fração do tempo com I/O ativo
+        exclude: {device: "loop.*|ram.*|sr.*"}

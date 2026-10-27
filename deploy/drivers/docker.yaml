@@ -1,0 +1,24 @@
+# Driver do Docker. Lê as métricas do próprio dockerd ("metrics-addr" em
+# /etc/docker/daemon.json); sudo scripts/enable-service.sh docker configura.
+drivers:
+  - name: ai-docker-health
+    version: 0.1.0
+    mode: observe_only
+    targets:
+      - host: local
+        url: http://127.0.0.1:9323/metrics
+    metrics:
+      # Containers em execução (queda = containers parando).
+      - name: engine_daemon_container_states_containers
+        alias: docker_containers_running
+        match: {state: running}
+        min_stddev: 0.5
+      # Qualquer falha de HEALTHCHECK sustentada.
+      - name: engine_daemon_health_checks_failed_total
+        rule: {above: 0, severity: high}
+      # Inícios de container: mais de ~3 por minuto sustentados indica crash loop.
+      - name: engine_daemon_container_actions_seconds_count
+        type: counter
+        alias: docker_container_starts
+        match: {action: start}
+        rule: {above: 0.05, severity: high}

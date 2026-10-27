@@ -1,0 +1,45 @@
+# TYPE apache_accesses_total counter
+apache_accesses_total 1234
+# TYPE apache_connections gauge
+apache_connections{state="closing"} 0
+apache_connections{state="keepalive"} 1
+apache_connections{state="total"} 2
+apache_connections{state="writing"} 0
+# TYPE apache_cpu_time_ms_total counter
+apache_cpu_time_ms_total{type="system"} 300
+apache_cpu_time_ms_total{type="user"} 500
+# TYPE apache_cpuload gauge
+apache_cpuload 0.08
+# TYPE apache_duration_ms_total counter
+apache_duration_ms_total 9000
+# TYPE apache_generation gauge
+apache_generation{type="config"} 1
+apache_generation{type="mpm"} 0
+# TYPE apache_load gauge
+apache_load{interval="15min"} 0.1
+apache_load{interval="1min"} 0.1
+apache_load{interval="5min"} 0.1
+# TYPE apache_processes gauge
+apache_processes{state="all"} 3
+apache_processes{state="stopping"} 0
+# TYPE apache_scoreboard gauge
+apache_scoreboard{state="closing"} 0
+apache_scoreboard{state="dns"} 0
+apache_scoreboard{state="graceful_stop"} 0
+apache_scoreboard{state="idle"} 14
+apache_scoreboard{state="idle_cleanup"} 0
+apache_scoreboard{state="keepalive"} 1
+apache_scoreboard{state="logging"} 0
+apache_scoreboard{state="open_slot"} 43
+apache_scoreboard{state="read"} 1
+apache_scoreboard{state="reply"} 1
+apache_scoreboard{state="startup"} 0
+# TYPE apache_sent_kilobytes_total counter
+apache_sent_kilobytes_total 5678
+# TYPE apache_up gauge
+apache_up 1
+# TYPE apache_uptime_seconds_total counter
+apache_uptime_seconds_total 3600
+# TYPE apache_workers gauge
+apache_workers{state="busy"} 3
+apache_workers{state="idle"} 72

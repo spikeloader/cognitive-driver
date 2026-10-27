@@ -1,0 +1,15 @@
+# Build e distribuição
+/bin/
+/dist/
+coverage.out
+
+# Estado local (make run)
+/data/
+*.db
+*.db-*
+
+# Editores e SO
+.idea/
+.vscode/
+*.swp
+.DS_Store

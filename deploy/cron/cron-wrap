@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Executa um job de cron e publica métricas dele no textfile collector do
+# node_exporter, lidas pelo driver ai-cron-health.
+#
+# Uso: cron-wrap [-i SEGUNDOS] JOB -- comando [args...]
+#   -i SEGUNDOS   intervalo esperado entre execuções (habilita os alertas
+#                 de job atrasado e travado)
+#   JOB           nome do job: letras, números, '.', '_' e '-'
+#
+# Diretório das métricas: $CRON_WRAP_DIR (padrão /var/lib/prometheus/node-exporter).
+# O job sempre roda e o código de saída dele é preservado; falhar ao gravar
+# as métricas só gera um aviso em stderr.
+#
+# Métricas (label job):
+#   cron_job_last_run_timestamp_seconds       início da última execução
+#   cron_job_running_since_timestamp_seconds  só enquanto o job está rodando
+#   cron_job_last_exit_code                   código de saída da última execução
+#   cron_job_last_success_timestamp_seconds   fim da última execução com sucesso
+#   cron_job_last_duration_seconds            duração da última execução
+#   cron_job_expected_interval_seconds        valor de -i
+set -u
+
+usage() { sed -n '5,9p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+
+INTERVAL=
+while getopts "i:" opt; do
+  case $opt in
+    i) INTERVAL=$OPTARG ;;
+    *) usage ;;
+  esac
+done
+shift $((OPTIND - 1))
+JOB=${1:-}
+shift || true
+[[ ${1:-} == -- ]] && shift
+[[ -n $JOB && $# -gt 0 ]] || usage
+# Erro de configuração do wrapper nunca impede o job de rodar.
+if [[ ! $JOB =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "cron-wrap: nome de job inválido: $JOB (executando sem métricas)" >&2
+  exec "$@"
+fi
+if [[ -n $INTERVAL && ! $INTERVAL =~ ^[0-9]+$ ]]; then
+  echo "cron-wrap: -i deve ser um número de segundos: $INTERVAL (ignorado)" >&2
+  INTERVAL=
+fi
+
+DIR=${CRON_WRAP_DIR:-/var/lib/prometheus/node-exporter}
+FILE=$DIR/cron_${JOB//[^A-Za-z0-9_]/_}.prom
+
+# Último sucesso registrado (sobrevive a execuções com falha).
+LAST_SUCCESS=
+if [[ -r $FILE ]]; then
+  LAST_SUCCESS=$(sed -n 's/^cron_job_last_success_timestamp_seconds{[^}]*} //p' "$FILE")
+fi
+
+# publish escreve o arquivo de forma atômica: o node_exporter só lê *.prom,
+# então o temporário (sufixo .$$) nunca é coletado pela metade.
+publish() {
+  local tmp=$FILE.$$ l="{job=\"$JOB\"}"
+  {
+    echo "# HELP cron_job_last_run_timestamp_seconds Início da última execução do job."
+    echo "# TYPE cron_job_last_run_timestamp_seconds gauge"
+    echo "cron_job_last_run_timestamp_seconds$l $START"
+    if [[ -n ${RUNNING:-} ]]; then
+      echo "# TYPE cron_job_running_since_timestamp_seconds gauge"
+      echo "cron_job_running_since_timestamp_seconds$l $START"
+    fi
+    if [[ -n ${EXIT_CODE:-} ]]; then
+      echo "# TYPE cron_job_last_exit_code gauge"
+      echo "cron_job_last_exit_code$l $EXIT_CODE"
+      echo "# TYPE cron_job_last_duration_seconds gauge"
+      echo "cron_job_last_duration_seconds$l $DURATION"
+    fi
+    if [[ -n $LAST_SUCCESS ]]; then
+      echo "# TYPE cron_job_last_success_timestamp_seconds gauge"
+      echo "cron_job_last_success_timestamp_seconds$l $LAST_SUCCESS"
+    fi
+    if [[ -n $INTERVAL ]]; then
+      echo "# TYPE cron_job_expected_interval_seconds gauge"
+      echo "cron_job_expected_interval_seconds$l $INTERVAL"
+    fi
+  } 2>/dev/null >"$tmp" && mv -f "$tmp" "$FILE" 2>/dev/null && return 0
+  rm -f "$tmp" 2>/dev/null
+  echo "cron-wrap: não foi possível gravar $FILE (job $JOB continua normalmente)" >&2
+}
+
+# A execução anterior pode não ter terminado (job travado ou sobreposto):
+# o resultado dela é mantido até esta terminar.
+if [[ -r $FILE ]]; then
+  EXIT_CODE=$(sed -n 's/^cron_job_last_exit_code{[^}]*} //p' "$FILE")
+  DURATION=$(sed -n 's/^cron_job_last_duration_seconds{[^}]*} //p' "$FILE")
+  [[ -n $DURATION ]] || EXIT_CODE=
+fi
+START=$(date +%s)
+RUNNING=1
+publish
+
+"$@"
+EXIT_CODE=$?
+
+END=$(date +%s)
+DURATION=$((END - START))
+RUNNING=
+(( EXIT_CODE == 0 )) && LAST_SUCCESS=$END
+publish
+exit "$EXIT_CODE"

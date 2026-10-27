@@ -1,0 +1,24 @@
+# Driver do nginx. Requer o prometheus-nginx-exporter lendo o stub_status
+# (sudo scripts/enable-service.sh nginx faz toda a configuração).
+drivers:
+  - name: ai-nginx-health
+    version: 0.1.0
+    mode: observe_only
+    targets:
+      - host: local
+        url: http://127.0.0.1:9113/metrics
+    metrics:
+      # Disponibilidade: o exporter publica nginx_up=0 quando não consegue ler o stub_status.
+      - name: nginx_up
+        rule: {equals: 1, severity: critical}
+      # Requisições por segundo (pico ou queda de tráfego).
+      - nginx_http_requests_total
+      # Conexões abertas (upstream lento, excesso de clientes).
+      - name: nginx_connections_active
+        min_stddev: 2
+      # Conexões aceitas e não tratadas: limite de worker_connections/descritores.
+      - name: nginx_connections_accepted
+        type: counter
+        alias: nginx_connections_dropped
+        subtract: {name: nginx_connections_handled, type: counter}
+        rule: {above: 0, severity: high}

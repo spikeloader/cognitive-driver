@@ -1,0 +1,56 @@
+# Driver do Swoole/OpenSwoole. O servidor expõe as próprias métricas: inclua
+# deploy/swoole/metrics.php na aplicação e responda swoole_metrics($server)
+# em GET /metrics (só para 127.0.0.1); veja o exemplo no arquivo. Ajuste a
+# URL abaixo para a porta do servidor. Cada servidor (label server) gera os
+# próprios eventos. Servidor fora do ar aparece como falha de coleta no /health.
+drivers:
+  - name: ai-swoole-health
+    version: 0.1.0
+    mode: observe_only
+    targets:
+      - host: local
+        url: http://127.0.0.1:9501/metrics
+    metrics:
+      # Workers ocupados / total acima de 90%: requisições começam a esperar.
+      - name: swoole_workers_busy_ratio
+        group_by: [server]
+        rule: {above: 0.9, severity: high}
+        describe:
+          label: Ocupação dos workers do Swoole
+          unit: ratio
+          up:
+            cause: Quase todos os workers estão ocupados (pico de carga ou código bloqueante dentro de corrotinas).
+            recommendation: Procurar chamadas bloqueantes (I/O sem hook de corrotina, sleep), ver a latência das dependências e ajustar worker_num.
+      # Conexões abertas (pico de clientes, conexões que não fecham).
+      - name: swoole_connections
+        group_by: [server]
+        min_stddev: 5
+        describe:
+          label: Conexões abertas no Swoole
+          unit: count
+      # Requisições por segundo.
+      - name: swoole_requests_total
+        group_by: [server]
+        describe:
+          label: Requisições do Swoole
+          unit: per_second
+      # Corrotinas vivas: crescimento contínuo indica vazamento.
+      - name: swoole_coroutines
+        group_by: [server]
+        min_stddev: 20
+        describe:
+          label: Corrotinas ativas no Swoole
+          unit: count
+          up:
+            cause: "Corrotinas acumulando (espera por I/O lento ou vazamento de corrotinas que nunca terminam)."
+            recommendation: Comparar com o tráfego; se crescer sem relação com as requisições, inspecionar com Coroutine::list() e backtraces.
+      # Tarefas aguardando task workers.
+      - name: swoole_task_queue
+        group_by: [server]
+        min_stddev: 2
+        describe:
+          label: Fila de tasks do Swoole
+          unit: count
+          up:
+            cause: Os task workers não dão conta das tasks enviadas.
+            recommendation: Ver a duração das tasks e aumentar task_worker_num se a carga for legítima.

@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cognitive Driver</title>
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="theme-color" content="#f6821f">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Ícones (sprite SVG) -->
+  <svg class="sprite" aria-hidden="true">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4"/><path d="M12 17.5v.01"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-8-4.7-8-11a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 9c0 6.3-8 11-8 11z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="i-chev-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-updown" viewBox="0 0 24 24"><path d="m8 9 4-4 4 4M8 15l4 4 4-4"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.5L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.6 4.5L20 16"/><path d="M20 20v-4h-4"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M15 8l2 2"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-dots" viewBox="0 0 24 24"><path d="M6 12h.01M12 12h.01M18 12h.01"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.7 5.7 3.7 9s-1.2 6.3-3.7 9c-2.5-2.7-3.7-5.7-3.7-9s1.2-6.3 3.7-9z"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+  </svg>
+
+  <div class="app">
+    <aside class="sidebar" id="sidebar" aria-label="Navegação">
+      <div class="account">
+        <img class="mark" src="icon.svg" alt="" width="26" height="26">
+        <div class="account-text">
+          <strong>Cognitive Driver</strong>
+          <span id="acct-sub">carregando…</span>
+        </div>
+        <svg class="ic muted"><use href="#i-updown"/></svg>
+      </div>
+
+      <button class="quick-search" id="quick-search" type="button">
+        <svg class="ic"><use href="#i-search"/></svg>
+        <span>Busca rápida…</span>
+        <kbd>Ctrl K</kbd>
+      </button>
+
+      <nav class="nav">
+        <a class="nav-item active" href="#" data-nav="home">
+          <svg class="ic"><use href="#i-home"/></svg><span>Visão geral</span>
+        </a>
+        <button class="nav-item" type="button" id="toggle-recent" aria-expanded="true">
+          <svg class="ic"><use href="#i-clock"/></svg><span>Recentes</span>
+          <svg class="ic caret"><use href="#i-chev-down"/></svg>
+        </button>
+        <div class="subnav" id="nav-recent"></div>
+        <a class="nav-item" href="#" data-nav="open">
+          <svg class="ic"><use href="#i-alert"/></svg><span>Eventos abertos</span><span class="badge" id="nav-open-count"></span>
+        </a>
+        <a class="nav-item" href="#" data-nav="all">
+          <svg class="ic"><use href="#i-check"/></svg><span>Histórico</span>
+        </a>
+
+        <div class="nav-section">Drivers</div>
+        <div id="nav-drivers"></div>
+
+        <div class="nav-section">Alvos de coleta</div>
+        <div id="nav-hosts"></div>
+
+        <div class="nav-section">Serviço</div>
+        <a class="nav-item" href="../metrics" target="_blank" rel="noopener">
+          <svg class="ic"><use href="#i-activity"/></svg><span>Métricas Prometheus</span><svg class="ic tail"><use href="#i-external"/></svg>
+        </a>
+        <a class="nav-item" href="../health" target="_blank" rel="noopener">
+          <svg class="ic"><use href="#i-heart"/></svg><span>Health check</span><svg class="ic tail"><use href="#i-external"/></svg>
+        </a>
+      </nav>
+
+      <div class="sidebar-foot">
+        <svg class="ic"><use href="#i-shield"/></svg>
+        <span>Modo <strong>observe_only</strong></span>
+      </div>
+    </aside>
+    <div class="scrim" id="sidebar-scrim"></div>
+
+    <div class="main-wrap">
+      <header class="topbar">
+        <button class="icon-btn only-mobile" id="btn-menu" type="button" aria-label="Abrir menu">
+          <svg class="ic"><use href="#i-menu"/></svg>
+        </button>
+        <span class="status-pill" id="service-status">—</span>
+        <span class="muted small hide-mobile" id="last-refresh"></span>
+        <div class="top-actions">
+          <button class="top-link" id="btn-refresh" type="button"><svg class="ic"><use href="#i-refresh"/></svg><span>Atualizar</span></button>
+          <button class="top-link" id="btn-token" type="button"><svg class="ic"><use href="#i-key"/></svg><span>Token</span></button>
+        </div>
+      </header>
+
+      <main class="content">
+        <section class="alerts" id="collect-alerts" aria-live="polite"></section>
+
+        <div class="hero">
+          <span class="hero-pill" id="hero-pill">
+            <span class="dot"></span><span id="hero-text">Conectando ao serviço…</span>
+          </span>
+          <h1>Recomendações para o seu time de SRE</h1>
+        </div>
+
+        <label class="search">
+          <svg class="ic"><use href="#i-search"/></svg>
+          <input id="q" type="search" placeholder="Buscar por métrica, host, driver ou recomendação" autocomplete="off">
+          <kbd>Ctrl</kbd><kbd>K</kbd>
+        </label>
+
+        <section class="columns">
+          <div class="col">
+            <div class="col-head"><button class="col-title" type="button" data-nav="open">Abertos por severidade <svg class="ic"><use href="#i-chev"/></svg></button><svg class="ic muted"><use href="#i-dots"/></svg></div>
+            <div class="rows" id="col-severity"></div>
+          </div>
+          <div class="col">
+            <div class="col-head"><span class="col-title">Drivers <svg class="ic"><use href="#i-chev"/></svg></span><svg class="ic muted"><use href="#i-dots"/></svg></div>
+            <div class="rows" id="col-drivers"></div>
+          </div>
+          <div class="col">
+            <div class="col-head"><span class="col-title">Recentes</span><svg class="ic muted"><use href="#i-dots"/></svg></div>
+            <div class="rows" id="col-recent"></div>
+          </div>
+        </section>
+
+        <section class="banner">
+          <div class="banner-art" aria-hidden="true"><svg class="ic"><use href="#i-shield"/></svg></div>
+          <div class="banner-body">
+            <h3>Nenhuma ação é executada automaticamente</h3>
+            <p>Os drivers operam em <strong>observe_only</strong>: observam, detectam, explicam e recomendam. As recomendações são sugestões para um operador humano; marque falsos positivos para melhorar a avaliação do modelo.</p>
+          </div>
+          <a class="btn primary" href="../metrics" target="_blank" rel="noopener">Ver métricas</a>
+        </section>
+
+        <div class="section-head">
+          <h2>Resumo</h2>
+          <span class="outline-btn small" id="summary-scope">Últimos 500 eventos</span>
+        </div>
+        <section class="kpis">
+          <div class="kpi"><div class="kpi-head"><span>Abertos</span><svg class="ic muted"><use href="#i-dots"/></svg></div><span class="kpi-value" id="kpi-open">–</span></div>
+          <div class="kpi"><div class="kpi-head"><span>Abertos high/critical</span><svg class="ic muted"><use href="#i-dots"/></svg></div><span class="kpi-value" id="kpi-severe">–</span></div>
+          <div class="kpi"><div class="kpi-head"><span>Reconhecidos</span><svg class="ic muted"><use href="#i-dots"/></svg></div><span class="kpi-value" id="kpi-ack">–</span></div>
+          <div class="kpi"><div class="kpi-head"><span>Resolvidos</span><svg class="ic muted"><use href="#i-dots"/></svg></div><span class="kpi-value" id="kpi-resolved">–</span></div>
+          <div class="kpi"><div class="kpi-head"><span>Falsos positivos</span><svg class="ic muted"><use href="#i-dots"/></svg></div><span class="kpi-value" id="kpi-fp">–</span></div>
+        </section>
+
+        <div class="section-head" id="events-anchor">
+          <h2>Eventos</h2>
+          <div class="controls">
+            <label class="outline-btn select-btn"><span class="muted">Status</span>
+              <select id="f-status" aria-label="Status">
+                <option value="open">Abertos</option>
+                <option value="acknowledged">Reconhecidos</option>
+                <option value="resolved">Resolvidos</option>
+                <option value="false_positive">Falsos positivos</option>
+                <option value="">Todos</option>
+              </select>
+            </label>
+            <label class="outline-btn select-btn"><span class="muted">Severidade</span>
+              <select id="f-severity" aria-label="Severidade">
+                <option value="">Todas</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </label>
+            <button class="icon-btn bordered" id="btn-refresh-2" type="button" aria-label="Atualizar"><svg class="ic"><use href="#i-refresh"/></svg></button>
+          </div>
+        </div>
+        <div class="chips" id="active-filters"></div>
+        <section class="card event-list" id="event-list" role="list" aria-label="Eventos"></section>
+        <nav class="pager" id="event-pager" aria-label="Paginação dos eventos" hidden>
+          <button class="btn" id="pager-prev" type="button">Anterior</button>
+          <span class="muted small" id="pager-info" aria-live="polite"></span>
+          <button class="btn" id="pager-next" type="button">Próxima</button>
+        </nav>
+      </main>
+    </div>
+  </div>
+
+  <div class="scrim" id="drawer-scrim"></div>
+  <aside class="drawer" id="drawer" aria-label="Detalhe do evento" aria-hidden="true">
+    <div class="drawer-head">
+      <span class="crumbs muted small" id="drawer-crumbs">Eventos</span>
+      <button class="icon-btn" id="drawer-close" type="button" aria-label="Fechar"><svg class="ic"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="drawer-body" id="detail"></div>
+  </aside>
+
+  <dialog id="token-dialog">
+    <form method="dialog" id="token-form">
+      <h2>Token de acesso</h2>
+      <p class="muted small">Valor da variável <code>MICRO_AI_TOKEN</code> do serviço. Fica salvo apenas neste navegador.</p>
+      <input type="password" id="token-input" autocomplete="off" placeholder="Bearer token" aria-label="Token">
+      <label class="check"><input type="checkbox" id="token-remember"> Lembrar neste navegador</label>
+      <p class="error small" id="token-error" hidden></p>
+      <div class="dialog-actions">
+        <button class="btn" value="cancel" formnovalidate>Cancelar</button>
+        <button class="btn primary" value="save">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <template id="tpl-detail">
+    <div class="detail">
+      <div class="detail-head">
+        <span class="sev"></span>
+        <span class="status"></span>
+        <span class="muted small when"></span>
+      </div>
+      <h2 class="detail-title"></h2>
+      <p class="muted small detail-meta"></p>
+
+      <div class="callout">
+        <h3>Recomendação</h3>
+        <p class="recommendation"></p>
+      </div>
+
+      <div class="card-sm">
+        <div class="field">
+          <h3>O que foi observado</h3>
+          <p class="explanation"></p>
+        </div>
+        <div class="field">
+          <h3>Causa provável</h3>
+          <p class="cause"></p>
+        </div>
+      </div>
+
+      <div class="card-sm rule-card" hidden>
+        <h3>Regra violada</h3>
+        <p class="rule-text"></p>
+      </div>
+
+      <div class="card-sm z-card">
+        <h3>Intensidade do desvio</h3>
+        <div class="zbar" role="img">
+          <div class="zband b-none"></div><div class="zband b-low"></div><div class="zband b-medium"></div><div class="zband b-high"></div><div class="zband b-critical"></div>
+          <div class="zmarker"></div>
+        </div>
+        <div class="zscale small muted"><span>0σ</span><span>3σ</span><span>4σ</span><span>6σ</span><span>10σ</span><span>15σ+</span></div>
+      </div>
+
+      <div class="card-sm evidence-card">
+        <h3>Evidências por janela</h3>
+        <table class="evidence">
+          <thead><tr><th>Janela</th><th>Média</th><th>Desvio</th><th>z-score</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <p class="small muted numbers"></p>
+      </div>
+
+      <div class="card-sm feedback">
+        <h3>Feedback do SRE</h3>
+        <textarea rows="3" placeholder="Ex.: backup noturno agendado, deploy da versão 2.3…" aria-label="Feedback"></textarea>
+        <div class="actions">
+          <button class="btn primary" data-status="acknowledged">Reconhecer</button>
+          <button class="btn" data-status="resolved">Resolver</button>
+          <button class="btn danger" data-status="false_positive">Falso positivo</button>
+          <button class="btn ghost" data-status="open">Reabrir</button>
+        </div>
+        <p class="small muted saved-feedback"></p>
+      </div>
+    </div>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>

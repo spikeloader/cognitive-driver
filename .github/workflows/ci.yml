@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: make fmt-check
+      - name: go vet
+        run: make vet
+      - name: Testes (race)
+        run: make test
+      - name: Build
+        run: make build && bin/cognitive-driver -version
+      - name: Configuração e drivers de exemplo válidos
+        run: |
+          mkdir -p /tmp/cd/drivers.d
+          cp configs/config.yaml /tmp/cd/
+          cp deploy/drivers/*.yaml /tmp/cd/drivers.d/
+          bin/cognitive-driver -check -config /tmp/cd/config.yaml
+
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sintaxe bash
+        run: for f in scripts/*.sh deploy/cron/cron-wrap; do bash -n "$f"; done
+      - name: shellcheck
+        run: shellcheck -S error scripts/*.sh deploy/cron/cron-wrap
+      - name: cron-wrap e wrap-cron-d.sh (sem root)
+        run: |
+          export CRON_WRAP_DIR=$(mktemp -d)
+          deploy/cron/cron-wrap -i 60 ci.ok -- true
+          grep -q 'cron_job_last_exit_code{job="ci.ok"} 0' "$CRON_WRAP_DIR/cron_ci_ok.prom"
+          set +e; deploy/cron/cron-wrap ci.fail -- sh -c 'exit 3'; rc=$?; set -e
+          test "$rc" = 3
+          grep -q 'cron_job_last_exit_code{job="ci.fail"} 3' "$CRON_WRAP_DIR/cron_ci_fail.prom"
+          d=$(mktemp -d)
+          printf '*/5 * * * * root /opt/x/job.sh && echo ok\n' > "$d/app"
+          scripts/wrap-cron-d.sh --dir "$d" | tee /tmp/diff
+          grep -q "cron-wrap -i 300 app.job -- /bin/sh -c '/opt/x/job.sh && echo ok'" /tmp/diff
+      - name: PHP (snippet do Swoole)
+        run: php -l deploy/swoole/metrics.php
