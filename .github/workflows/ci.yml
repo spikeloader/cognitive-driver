@@ -12,7 +12,7 @@ jobs:
   go:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -34,7 +34,7 @@ jobs:
   scripts:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Sintaxe bash
         run: for f in scripts/*.sh deploy/cron/cron-wrap; do bash -n "$f"; done
       - name: shellcheck
