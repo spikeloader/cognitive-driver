@@ -5,6 +5,21 @@ o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Adicionado
+- Processo responsável: eventos de CPU, memória e disco trazem os grupos de
+  processos que mais consumiam o recurso no momento (process-exporter), em
+  destaque no detalhe do evento e na lista. `attribute` por métrica no YAML,
+  seção `attribution` na configuração e `enable-service.sh processes`.
+- Drivers de Redis, Memcached, PostgreSQL e MySQL/MariaDB, com
+  `enable-service.sh redis|memcached|postgresql|mysql`. PostgreSQL e MySQL
+  ganham um usuário de monitoramento sem senha (autenticação pelo socket
+  local) e com permissões só de leitura.
+
+### Corrigido
+- `enable-service.sh` dava a coleta como falha com exporters de saída grande
+  (process-exporter): com `pipefail`, o `grep -q` encerrava o pipe e o `curl`
+  saía por SIGPIPE. O process-exporter passa a rodar com `-threads=false`.
+
 ## [0.1.0] - 2026-10-27
 
 Primeira versão pública.

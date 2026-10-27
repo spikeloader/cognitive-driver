@@ -2,9 +2,13 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +17,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
+	"github.com/spikeloader/cognitive-driver/internal/attribution"
 	"github.com/spikeloader/cognitive-driver/internal/collector"
 	"github.com/spikeloader/cognitive-driver/internal/config"
 	"github.com/spikeloader/cognitive-driver/internal/driver"
@@ -340,5 +345,82 @@ func TestCronJobFailureOpensEventPerJob(t *testing.T) {
 	}
 	if n := len(d2.Baselines()); n != 2 {
 		t.Fatalf("esperados 2 estados restaurados (um por job), obtido %d", n)
+	}
+}
+
+// processExporter serve contadores de CPU que avançam com o tempo real:
+// stress-ng usa ~1,9 núcleo e sshd quase nada.
+func processExporter(t *testing.T) string {
+	t.Helper()
+	start := time.Now()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		s := time.Since(start).Seconds() + 10
+		fmt.Fprintf(w, "namedprocess_namegroup_cpu_seconds_total{groupname=\"stress-ng\",mode=\"user\"} %g\n", 1.9*s)
+		fmt.Fprintf(w, "namedprocess_namegroup_cpu_seconds_total{groupname=\"sshd\",mode=\"user\"} %g\n", 0.01*s)
+		fmt.Fprintln(w, "namedprocess_namegroup_num_procs{groupname=\"stress-ng\"} 2")
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL + "/metrics"
+}
+
+func newAttributedRunner(t *testing.T, c collector.Collector, processURL string) (*Runner, *store.Store) {
+	t.Helper()
+	cfg, err := config.Parse([]byte(`
+collector:
+  targets: [{host: node-1, url: "http://unused:9100/metrics"}]
+drivers:
+  - name: ai-host-health
+    metrics:
+      - name: node_cpu_seconds_total
+        exclude: {mode: idle}
+        attribute: cpu
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, st, _ := newRunner(t, c)
+	r.Drivers = []driver.Driver{driver.NewStatistical(cfg.Drivers[0], cfg.Collector.Interval)}
+	r.Attributor = attribution.New(map[string]string{"node-1": processURL}, 50*time.Millisecond, time.Second, 5)
+	return r, st
+}
+
+func cpuSpike(spikeAt int) *fakeCPU {
+	return &fakeCPU{ts: time.Unix(1_700_000_000, 0), rate: func(i int) float64 {
+		if i >= spikeAt && i < spikeAt+3 {
+			return 1.9
+		}
+		return 0.3 + 0.02*math.Sin(float64(i))
+	}}
+}
+
+func TestEventShowsResponsibleProcess(t *testing.T) {
+	r, st := newAttributedRunner(t, cpuSpike(60), processExporter(t))
+	ctx := context.Background()
+	for range 63 {
+		r.Tick(ctx)
+	}
+	evs, err := st.ListEvents(ctx, store.Filter{})
+	if err != nil || len(evs) != 1 {
+		t.Fatalf("esperado 1 evento, obtido %d (%v)", len(evs), err)
+	}
+	var res attribution.Result
+	if err := json.Unmarshal(evs[0].Attribution, &res); err != nil {
+		t.Fatalf("atribuição ausente ou inválida: %q (%v)", evs[0].Attribution, err)
+	}
+	p := res.Responsible()
+	if p == nil || p.Group != "stress-ng" || math.Abs(p.Value-1.9) > 0.3 || p.Procs != 2 || res.Resource != "cpu" {
+		t.Fatalf("responsável incorreto: %+v", res)
+	}
+}
+
+func TestEventWithoutProcessExporterStillOpens(t *testing.T) {
+	r, st := newAttributedRunner(t, cpuSpike(60), "http://127.0.0.1:1/metrics")
+	ctx := context.Background()
+	for range 63 {
+		r.Tick(ctx)
+	}
+	evs, _ := st.ListEvents(ctx, store.Filter{})
+	if len(evs) != 1 || len(evs[0].Attribution) != 0 {
+		t.Fatalf("evento deveria abrir sem atribuição: %+v", evs)
 	}
 }

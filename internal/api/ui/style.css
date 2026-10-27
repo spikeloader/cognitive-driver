@@ -310,6 +310,18 @@ table.evidence { width: 100%; border-collapse: collapse; font-variant-numeric: t
 .evidence td.hot { color: var(--sev-critical); }
 .numbers { margin-top: 8px !important; }
 
+/* Responsável: o grupo de processos que mais consumia o recurso do evento. */
+.owner-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-top: 2px; }
+.owner-name { font: 600 17px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.owner-value { color: var(--muted); font-variant-numeric: tabular-nums; }
+.owner-bar { height: 6px; margin: 8px 0 4px; border-radius: 3px; background: var(--band-none); overflow: hidden; }
+.owner-bar span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.owners { margin-top: 6px; }
+.owners td:first-child { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.owners tr.top td { font-weight: 600; }
+.owner-note { margin-top: 8px !important; }
+.owner-card.empty .owner-main, .owner-card.empty .owner-bar, .owner-card.empty .owners { display: none; }
+
 textarea, input[type=password] { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; padding: 7px 9px; width: 100%; }
 textarea { resize: vertical; }
 textarea:focus, input[type=password]:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }

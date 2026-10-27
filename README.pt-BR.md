@@ -86,7 +86,7 @@ make run         # build + execução local com configs/config.yaml (data em ./d
 make dist        # pacotes de release em dist/ (linux amd64/arm64 + SHA256SUMS)
 ```
 
-## Serviços monitorados (nginx, Apache, Docker, PHP, cron)
+## Serviços monitorados (nginx, Apache, Docker, PHP, cron, Redis, Memcached, PostgreSQL, MySQL)
 
 Além do host (CPU, memória, disco, rede via node_exporter), cada serviço tem
 um driver próprio que lê o exporter do serviço. Ative com um comando; o
@@ -100,6 +100,11 @@ sudo scripts/enable-service.sh docker    # metrics-addr no daemon.json (reinicia
 sudo scripts/enable-service.sh php-fpm   # exige o php-fpm_exporter em 127.0.0.1:9253
 sudo scripts/enable-service.sh swoole --metrics-url http://127.0.0.1:9501/metrics
 sudo scripts/enable-service.sh cron      # driver que lê as métricas do cron-wrap via node_exporter
+sudo scripts/enable-service.sh processes # process-exporter: eventos indicam o processo responsável
+sudo scripts/enable-service.sh redis     # prometheus-redis-exporter (REDIS_PASSWORD=... se houver requirepass)
+sudo scripts/enable-service.sh memcached # exige o memcached_exporter em 127.0.0.1:9150
+sudo scripts/enable-service.sh postgresql # prometheus-postgres-exporter + role "prometheus" sem senha (pg_monitor, peer)
+sudo scripts/enable-service.sh mysql     # prometheus-mysqld-exporter + prometheus@localhost (auth por socket, só leitura)
 sudo scripts/enable-service.sh nginx --disable   # remove o driver
 ```
 
@@ -124,11 +129,52 @@ sudo scripts/enable-service.sh nginx --disable   # remove o driver
 | (por job) | job sem iniciar há mais de 2 intervalos (cron parado, linha removida) | regra · high |
 | | execução em andamento há mais de 1 intervalo (travado/sobreposição) | regra · high |
 | | duração > 80% do intervalo | regra · medium |
+| `ai-redis-health` | Redis fora do ar; conexões recusadas (`maxclients`); memória > 90% do `maxmemory`; último snapshot RDB falhou | regra · critical/high |
+| | réplica sem link com o primário | regra · critical |
+| | despejos, comandos/s, misses no keyspace e clientes fora do padrão | estatística |
+| `ai-memcached-health` | Memcached fora do ar; conexões > 90% do limite (`-c`) | regra · critical/high |
+| | despejos, misses de GET, comandos/s e conexões fora do padrão | estatística |
+| `ai-postgresql-health` | PostgreSQL fora do ar; conexões > 90% do `max_connections` | regra · critical/high |
+| (por banco) | deadlocks; atraso da réplica > 5 min | regra · high |
+| | rollbacks e arquivos temporários (por banco), transações/s e conexões fora do padrão | estatística |
+| `ai-mysql-health` | MySQL/MariaDB fora do ar; thread de IO/SQL da replicação parada | regra · critical |
+| | conexões > 90% do `max_connections`; atraso da réplica > 5 min | regra · high |
+| | threads em execução, consultas lentas, conexões abortadas, esperas por lock do InnoDB e consultas/s fora do padrão | estatística |
 
 **Regras** disparam sem baseline (após `consecutive_points` coletas) e
 servem para estados inequívocos; a **detecção estatística** aprende o padrão
 de cada métrica. Todo evento traz causa provável e recomendação específicas
 do serviço.
+
+### Processo responsável
+
+Quando um evento é emitido para uma métrica com `attribute` (`cpu`, `memory`
+ou `io`), o cognitive-driver lê o
+[process-exporter](https://github.com/ncabatoff/process-exporter) do host
+duas vezes, com 2 s de intervalo, e grava no evento os grupos de processos
+(mesmo nome de comando) que mais consumiam o recurso. O painel mostra o
+primeiro como **Responsável provável** no topo do evento, com a fatia do
+total e os seguintes; a lista de eventos mostra o nome dele.
+
+```bash
+sudo scripts/enable-service.sh processes                       # local: 127.0.0.1:9256
+sudo scripts/enable-service.sh processes --listen 0.0.0.0:9256 # host coletado por uma instância central
+```
+
+- O process-exporter é procurado no mesmo endereço do node_exporter do host,
+  na porta `attribution.process_exporter_port` (padrão 9256; 0 desativa).
+  Não há configuração por host.
+- As métricas de CPU, memória e disco do host têm `attribute` por padrão;
+  qualquer métrica de driver pode declarar, e `attribute: none` desativa.
+- Indica quem consumia o recurso no momento, não uma causa confirmada.
+  Tráfego de rede não é atribuído (o exporter não tem rede por processo).
+- Se o process-exporter estiver indisponível, o evento abre mesmo assim,
+  sem responsável.
+- Eventos de disco precisam de `--with-io`: o kernel só expõe o
+  `/proc/<pid>/io` de processos de outros usuários com `CAP_SYS_PTRACE`, que
+  essa opção concede ao process-exporter (opcional, porque amplia o que o
+  exporter pode ler). Sem ela, eventos de CPU e memória têm responsável e os
+  de disco não.
 
 ### PHP
 
@@ -168,10 +214,11 @@ sudo scripts/wrap-cron-d.sh --unwrap --apply   # desfaz
   `php`) ficam de fora por padrão: editá-los gera conflito de conffile nas
   atualizações. Use `--include-packaged` para envolvê-los mesmo assim.
 
-### Outros serviços (PostgreSQL, Redis, …) sem mudar código
+### Outros serviços sem mudar código
 
 Qualquer exporter Prometheus vira um driver com um arquivo em `drivers.d/`.
-Os modelos em [deploy/drivers/](deploy/drivers/) mostram todos os recursos:
+Os modelos em [deploy/drivers/](deploy/drivers/) mostram todos os recursos;
+este é uma versão reduzida do de Redis:
 
 ```yaml
 drivers:
@@ -197,7 +244,9 @@ drivers:
 Campos de métrica: `match`/`exclude` (regex de labels), `type`
 (counter/gauge/timestamp — timestamp vira idade em segundos), `alias`,
 `group_by` (uma feature e um evento por valor dos labels, ex.: `[job]`,
-`[pool]`, em vez de somar as séries), `subtract`/`divide_by` (derivadas), `rule`
+`[pool]`, em vez de somar as séries), `subtract`/`divide_by` (derivadas),
+`attribute` (`cpu`/`memory`/`io`/`none`: recurso usado para indicar o
+processo responsável), `rule`
 (`above`/`below`/`equals` + `severity`), `min_stddev` (piso absoluto do
 desvio, útil em contagens pequenas) e `describe` (`label`, `unit` —
 cores, bytes, bytes_per_second, ratio, per_second, count, milliseconds,
@@ -234,6 +283,7 @@ link direto (`/ui/#event=<id>`) para colar em tickets ou no chat do time.
 | Anomalia | `|z| ≥ anomaly_threshold` (3,0), em qualquer direção (pico ou queda). |
 | Severidade | low 3–4σ · medium 4–6σ · high 6–10σ · critical ≥ 10σ. Score = `1 - e^(-|z|/2)`. |
 | Congelamento | Pontos anômalos não entram na baseline até `baseline_freeze_points` (10 ≈ 2,5 min) seguidos; assim um pico não infla o desvio-padrão e mascara a própria detecção. Se a anomalia persistir além disso, o novo patamar passa a ser aprendido. |
+| Responsável | Para métricas com `attribute`, os grupos de processos que mais consumiam CPU, memória ou I/O de disco na emissão (process-exporter, 2 amostras). Guardado junto da observação de pico. |
 | Evento | Emitido após `consecutive_points` (3) pontos anômalos seguidos, com `cooldown` (5m) por host × métrica. Há no máximo um evento ativo (aberto ou reconhecido) por driver × host × métrica: reemissões viram ocorrências dele. |
 | Ação | A recomendação passa pela política; em `observe_only` é sempre bloqueada (`cognitive_driver_actions_blocked_total`). |
 
@@ -322,6 +372,7 @@ cmd/cognitive-driver/     main: configuração, wiring, HTTP server, shutdown
 internal/config/          YAML + defaults + validação
 internal/collector/       scrape HTTP + parser do formato de texto Prometheus
 internal/feature/         contador → taxa, timestamp → idade, filtros de label, agregação e group_by
+internal/attribution/     processo responsável a partir do process-exporter
 internal/anomaly/         EWMA, z-score, severidade, consecutivos, cooldown
 internal/explain/         catálogo (host, nginx, Apache, Docker), explicação e recomendação
 internal/policy/          autorização de ações (bloqueia tudo no MVP)
@@ -332,7 +383,8 @@ internal/telemetry/       métricas Prometheus do serviço
 internal/api/             endpoints HTTP/JSON
 internal/api/ui/          painel web (HTML/CSS/JS embutidos via go:embed)
 deploy/systemd/           unit com sandbox e limites
-deploy/drivers/           modelos de driver por serviço (nginx, apache, docker, php-fpm, swoole, cron)
+deploy/drivers/           modelos de driver por serviço (nginx, apache, docker, php-fpm, swoole, cron,
+                          redis, memcached, postgresql, mysql)
 deploy/cron/cron-wrap     wrapper dos jobs de cron (métricas no textfile collector)
 deploy/swoole/metrics.php métricas do Swoole/OpenSwoole para o /metrics da aplicação
 scripts/                  install.sh, uninstall.sh, enable-service.sh, wrap-cron-d.sh, validate-e2e.sh

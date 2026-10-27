@@ -265,3 +265,42 @@ func TestMigratesOldSchema(t *testing.T) {
 		s2.Close()
 	}
 }
+
+func TestRecordEventKeepsAttribution(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+
+	// Pico sem atribuição (process-exporter indisponível no momento).
+	peak := event("a", t0, "critical")
+	if _, _, err := s.RecordEvent(ctx, peak); err != nil {
+		t.Fatal(err)
+	}
+	// Emissão mais fraca, mas com atribuição: preenche o que faltava.
+	weak := event("b", t0.Add(5*time.Minute), "low")
+	weak.Score = 0.5
+	weak.Attribution = json.RawMessage(`{"resource":"io","processes":[{"group":"rsync","value":1}]}`)
+	got, _, err := s.RecordEvent(ctx, weak)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Severity != "critical" || string(got.Attribution) != string(weak.Attribution) {
+		t.Fatalf("atribuição deveria ser preenchida mantendo o pico: %+v", got)
+	}
+	read, _ := s.GetEvent(ctx, "a")
+	if string(read.Attribution) != string(weak.Attribution) {
+		t.Fatalf("atribuição não persistida: %q", read.Attribution)
+	}
+	// Evento sem atribuição volta como nulo (omitido no JSON).
+	if _, _, err := s.UpdateEvent(ctx, "a", StatusResolved, "", t0); err != nil {
+		t.Fatal(err)
+	}
+	other := event("c", t0, "low")
+	other.Metric = "outra"
+	if err := s.InsertEvent(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := s.GetEvent(ctx, "c"); e.Attribution != nil {
+		t.Fatalf("sem atribuição deveria ser nil: %q", e.Attribution)
+	}
+}

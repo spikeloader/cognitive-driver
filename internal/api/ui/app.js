@@ -449,6 +449,25 @@ function matches(e) {
   return true;
 }
 
+const RESOURCE_LABEL = { cpu: "CPU", memory: "memória residente", io: "leitura + escrita em disco" };
+
+// Grupo de processos que mais consumia o recurso quando o evento foi registrado.
+function responsible(e) {
+  const p = e.attribution && e.attribution.processes && e.attribution.processes[0];
+  return p || null;
+}
+
+// A métrica pede atribuição (attribute no YAML), mesmo que o evento não a tenha.
+function wantsAttribution(e) {
+  const h = healthMetric(e.metric.replace(/\{.*\}$/, ""));
+  return Boolean(e.attribution || (h && h.attribute));
+}
+
+function wantsIO(e) {
+  const h = healthMetric(e.metric.replace(/\{.*\}$/, ""));
+  return Boolean(h && h.attribute === "io");
+}
+
 // Reemissões da mesma métrica com o evento ainda ativo viram ocorrências.
 function occurrencesText(e) {
   const n = e.occurrences || 1;
@@ -479,7 +498,7 @@ function renderList() {
     title.append(el("span", `sev ${e.severity}`, e.severity), el("span", "", `${m.label} · ${e.host}`));
     const main = el("div", "event-main");
     main.append(title, el("div", "event-reco", e.recommendation),
-      el("div", "event-meta", `${e.driver} · ${e.detector === "rule" ? `regra: ${ruleText(e)}` : `z ${num(e.zscore, 1)}`} · observado ${m.fmt(e.value)}${occurrencesText(e)}`));
+      el("div", "event-meta", `${e.driver} · ${e.detector === "rule" ? `regra: ${ruleText(e)}` : `z ${num(e.zscore, 1)}`} · observado ${m.fmt(e.value)}${responsible(e) ? ` · responsável: ${responsible(e).group}` : ""}${occurrencesText(e)}`));
     const side = el("div", "event-side");
     const time = el("span", "", relTime(e.timestamp));
     time.title = absTime(e.timestamp);
@@ -613,7 +632,9 @@ function renderDetail() {
   q(".zbar").setAttribute("aria-label", `${num(absZ, 1)} desvios-padrão (${e.severity})`);
   q(".zbar").title = `|z| = ${num(absZ, 1)}`;
 
-  const tbody = q(".evidence tbody");
+  renderOwner(q, e);
+
+  const tbody = q(".evidence-card tbody");
   const decision = closestWindow(e);
   for (const w of e.evidence || []) {
     const tr = el("tr", w.window === decision ? "decision" : "");
@@ -641,6 +662,37 @@ function renderDetail() {
   if (draft && panel.dataset.id === e.id && draft.value !== (e.feedback || "")) ta.value = draft.value;
   panel.dataset.id = e.id;
   panel.replaceChildren(node);
+}
+
+function renderOwner(q, e) {
+  const card = q(".owner-card");
+  card.hidden = !wantsAttribution(e);
+  if (card.hidden) return;
+  const a = e.attribution;
+  const top = responsible(e);
+  if (!top) {
+    card.classList.add("empty");
+    q(".owner-note").textContent = wantsIO(e)
+      ? "Sem dados de processo para este evento. Para disco, o process-exporter precisa ler o I/O de outros " +
+        "usuários: sudo scripts/enable-service.sh processes --with-io."
+      : "Sem dados de processo para este evento. Instale o process-exporter no host " +
+        "(sudo scripts/enable-service.sh processes) para que os próximos eventos indiquem o responsável.";
+    return;
+  }
+  const fmt = (v) => fmtUnit(a.unit, v);
+  const share = (p) => `${num(p.share * 100, 0)}%`;
+  q(".owner-name").textContent = top.group;
+  q(".owner-value").textContent = `${fmt(top.value)} · ${share(top)} do ${RESOURCE_LABEL[a.resource] || a.resource} medido`;
+  q(".owner-bar span").style.width = `${Math.min(100, top.share * 100)}%`;
+  q(".owner-bar").setAttribute("aria-label", `${top.group}: ${share(top)} do total`);
+  const tbody = q(".owners tbody");
+  a.processes.forEach((p, i) => {
+    const tr = el("tr", i === 0 ? "top" : "");
+    tr.append(el("td", "", p.group), el("td", "", fmt(p.value)), el("td", "", share(p)), el("td", "", p.procs ? String(p.procs) : "—"));
+    tbody.append(tr);
+  });
+  q(".owner-note").textContent = `Medido pelo ${a.source} em ${absTime(a.at)}, por grupo de processos com o mesmo nome. ` +
+    "Indica quem mais consumia o recurso no momento, não a causa confirmada.";
 }
 
 // A janela de decisão é a que tem as mesmas média/desvio do evento.

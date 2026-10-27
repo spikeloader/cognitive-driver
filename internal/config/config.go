@@ -30,8 +30,32 @@ type Config struct {
 	Service   Service   `yaml:"service"`
 	Collector Collector `yaml:"collector"`
 	API       API       `yaml:"api"`
-	Drivers   []Driver  `yaml:"drivers"`
+	// Attribution identifica o processo responsável pelos eventos.
+	Attribution Attribution `yaml:"attribution"`
+	Drivers     []Driver    `yaml:"drivers"`
 }
+
+// Attribution lê o process-exporter dos hosts de collector.targets (mesmo
+// endereço do node_exporter, outra porta) quando um evento é emitido.
+type Attribution struct {
+	// ProcessExporterPort é a porta do process-exporter; 0 desativa.
+	ProcessExporterPort *int `yaml:"process_exporter_port"`
+	// SampleGap separa as duas amostras usadas para calcular CPU e I/O.
+	SampleGap time.Duration `yaml:"sample_gap"`
+	// Top é quantos grupos de processos guardar no evento.
+	Top int `yaml:"top"`
+}
+
+// Port retorna a porta do process-exporter (padrão 9256) ou 0 se desativado.
+func (a Attribution) Port() int {
+	if a.ProcessExporterPort == nil {
+		return 9256
+	}
+	return *a.ProcessExporterPort
+}
+
+// Recursos aceitos em metrics[].attribute ("none" desativa o padrão).
+var attributeResources = []string{"cpu", "memory", "io", "none"}
 
 type Service struct {
 	DataDir              string        `yaml:"data_dir"`
@@ -113,6 +137,10 @@ type Metric struct {
 	// Métricas derivadas: valor = métrica - subtract, ou métrica / divide_by.
 	Subtract *Operand `yaml:"subtract"`
 	DivideBy *Operand `yaml:"divide_by"`
+	// Attribute indica o recurso (cpu, memory, io) cujo maior consumidor é
+	// apontado como responsável pelos eventos da métrica. Vazio usa o padrão
+	// da métrica (CPU, memória e disco do host já têm um); none desativa.
+	Attribute string `yaml:"attribute"`
 	// Rule troca a detecção estatística por uma regra fixa (sem aprendizado).
 	Rule *Rule `yaml:"rule"`
 	// MinStddev é um piso absoluto do desvio-padrão (útil para contagens).
@@ -262,6 +290,12 @@ func (c *Config) applyDefaults() {
 	if c.API.AuthTokenEnv == "" {
 		c.API.AuthTokenEnv = "MICRO_AI_TOKEN"
 	}
+	if c.Attribution.SampleGap == 0 {
+		c.Attribution.SampleGap = 2 * time.Second
+	}
+	if c.Attribution.Top == 0 {
+		c.Attribution.Top = 5
+	}
 	for i := range c.Drivers {
 		d := &c.Drivers[i]
 		if d.Version == "" {
@@ -317,6 +351,15 @@ func (c *Config) Validate() error {
 		add("collector.targets: ao menos um alvo é obrigatório")
 	}
 	validateTargets("collector.targets", c.Collector.Targets, add)
+	if p := c.Attribution.Port(); p < 0 || p > 65535 {
+		add("attribution.process_exporter_port inválida: %d", p)
+	}
+	if c.Attribution.SampleGap < 100*time.Millisecond || c.Attribution.SampleGap > c.Collector.Timeout {
+		add("attribution.sample_gap deve estar entre 100ms e collector.timeout")
+	}
+	if c.Attribution.Top < 1 || c.Attribution.Top > 20 {
+		add("attribution.top deve estar entre 1 e 20")
+	}
 	switch c.Service.LogLevel {
 	case "debug", "info", "warn", "error":
 	default:
@@ -396,6 +439,9 @@ func (c *Config) Validate() error {
 			}
 			if m.MinStddev < 0 {
 				add("%s.min_stddev não pode ser negativo", mp)
+			}
+			if m.Attribute != "" && !slices.Contains(attributeResources, m.Attribute) {
+				add("%s.attribute inválido: %q (use %v)", mp, m.Attribute, attributeResources)
 			}
 			for _, l := range m.GroupBy {
 				if !labelName.MatchString(l) {

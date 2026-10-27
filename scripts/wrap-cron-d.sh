@@ -267,6 +267,7 @@ elif (( ${#USERS[@]} )); then
     warn "setfacl ausente (pacote acl): os jobs de ${USERS[*]} rodam, mas sem métricas"
   fi
 fi
-if ! curl -sf -m 3 http://127.0.0.1:9100/metrics 2>/dev/null | grep -q '^node_textfile_scrape_error'; then
+metrics=$(curl -sf -m 3 http://127.0.0.1:9100/metrics 2>/dev/null || true)
+if ! grep -q '^node_textfile_scrape_error' <<<"$metrics"; then
   warn "o textfile collector do node_exporter não parece ativo em 127.0.0.1:9100"
 fi

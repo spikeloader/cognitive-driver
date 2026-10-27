@@ -31,6 +31,9 @@ type MetricInfo struct {
 	Label    string `json:"label"`
 	Unit     string `json:"unit"`
 	Detector string `json:"detector"`
+	// Attribute é o recurso (cpu, memory, io) usado para apontar o
+	// processo responsável pelos eventos da métrica.
+	Attribute string `json:"attribute,omitempty"`
 }
 
 // Info descreve um driver para o /health.
@@ -53,6 +56,7 @@ type Anomaly struct {
 	Metric      string `json:"metric"`
 	MetricLabel string `json:"metric_label"`
 	Unit        string `json:"unit"`
+	Attribute   string `json:"attribute,omitempty"`
 	anomaly.Result
 }
 
@@ -85,6 +89,24 @@ type detector interface {
 	State() anomaly.State
 	Restore(anomaly.State) bool
 	CancelEmit()
+}
+
+// defaultAttribute é o recurso atribuído às métricas do host quando o YAML
+// não define attribute (configurações instaladas antes da atribuição).
+var defaultAttribute = map[string]string{
+	"node_cpu_seconds_total":          "cpu",
+	"node_memory_MemAvailable_bytes":  "memory",
+	"node_disk_io_time_seconds_total": "io",
+}
+
+func attributeFor(m config.Metric) string {
+	switch m.Attribute {
+	case "none":
+		return ""
+	case "":
+		return defaultAttribute[m.Key()]
+	}
+	return m.Attribute
 }
 
 // metricSpec guarda o que o driver sabe sobre cada feature.
@@ -129,7 +151,7 @@ func NewStatistical(cfg config.Driver, interval time.Duration) *Statistical {
 	for _, m := range cfg.Metrics {
 		spec := &metricSpec{override: toOverride(m.Describe)}
 		label, unit := explain.Describe(m.Key(), spec.override)
-		spec.info = MetricInfo{Name: m.Key(), Label: label, Unit: unit, Detector: anomaly.DetectorStatistical}
+		spec.info = MetricInfo{Name: m.Key(), Label: label, Unit: unit, Detector: anomaly.DetectorStatistical, Attribute: attributeFor(m)}
 		if r := m.Rule; r != nil {
 			rule := toRule(r)
 			spec.info.Detector = anomaly.DetectorRule
@@ -249,7 +271,8 @@ func (s *Statistical) wrap(f feature.Feature, r anomaly.Result) Anomaly {
 	if _, g := feature.SplitSeries(f.Metric); g != "" {
 		label += " · " + feature.GroupValues(g)
 	}
-	return Anomaly{Driver: s.cfg.Name, Host: f.Host, Metric: f.Metric, MetricLabel: label, Unit: info.Unit, Result: r}
+	return Anomaly{Driver: s.cfg.Name, Host: f.Host, Metric: f.Metric, MetricLabel: label, Unit: info.Unit,
+		Attribute: info.Attribute, Result: r}
 }
 
 func (s *Statistical) Explain(a Anomaly) explain.Explanation {

@@ -270,3 +270,94 @@ func TestSeriesHelpers(t *testing.T) {
 		t.Fatalf("métrica sem grupo: %q %q", k, g)
 	}
 }
+
+func near(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
+
+// checkFeatures confere as features esperadas e que nenhuma outra apareceu.
+func checkFeatures(t *testing.T, got, want map[string]float64) {
+	t.Helper()
+	for k, v := range want {
+		if g, ok := got[k]; !ok || !near(g, v) {
+			t.Errorf("%s = %v (presente: %v), esperado %v", k, g, ok, v)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("features: obtido %v, esperado %v", got, want)
+	}
+}
+
+func TestRedisDriverFeatures(t *testing.T) {
+	e := NewEngine(loadDriver(t, "redis.yaml").Metrics)
+	t0 := time.Unix(1000, 0)
+	checkFeatures(t, byMetric(e.Compute(snapshotFromFixture(t, "redis.prom", t0, nil))), map[string]float64{
+		"redis_up": 1, "redis_memory_ratio": 943718400.0 / 1073741824, "redis_rdb_last_bgsave_status": 1,
+		"redis_connected_clients": 42,
+	})
+	got := byMetric(e.Compute(snapshotFromFixture(t, "redis.prom", t0.Add(10*time.Second), map[string]float64{
+		"redis_rejected_connections_total": 5, "redis_evicted_keys_total": 30,
+		"redis_commands_processed_total": 20000, "redis_keyspace_misses_total": 100,
+	})))
+	if got["redis_rejected_connections_total"] != 0.5 || got["redis_evicted_keys_total"] != 3 ||
+		got["redis_commands_processed_total"] != 2000 || got["redis_keyspace_misses_total"] != 10 {
+		t.Fatalf("taxas do Redis incorretas: %v", got)
+	}
+	if _, ok := got["redis_master_link_up"]; ok {
+		t.Error("redis_master_link_up só existe em réplicas")
+	}
+}
+
+func TestMemcachedDriverFeatures(t *testing.T) {
+	e := NewEngine(loadDriver(t, "memcached.yaml").Metrics)
+	t0 := time.Unix(1000, 0)
+	checkFeatures(t, byMetric(e.Compute(snapshotFromFixture(t, "memcached.prom", t0, nil))), map[string]float64{
+		"memcached_up": 1, "memcached_connections_ratio": 950.0 / 1024, "memcached_current_connections": 950,
+	})
+	// +100 em cada série de comandos: a de misses de GET é só uma delas.
+	got := byMetric(e.Compute(snapshotFromFixture(t, "memcached.prom", t0.Add(10*time.Second), map[string]float64{
+		"memcached_commands_total": 100, "memcached_items_evicted_total": 50,
+	})))
+	if got["memcached_get_misses"] != 10 || got["memcached_commands_total"] != 40 || got["memcached_items_evicted_total"] != 5 {
+		t.Fatalf("taxas do Memcached incorretas: %v", got)
+	}
+}
+
+func TestPostgreSQLDriverFeatures(t *testing.T) {
+	e := NewEngine(loadDriver(t, "postgresql.yaml").Metrics)
+	t0 := time.Unix(1000, 0)
+	checkFeatures(t, byMetric(e.Compute(snapshotFromFixture(t, "postgresql.prom", t0, nil))), map[string]float64{
+		"pg_up": 1, "pg_connections_ratio": 0.88, "pg_connections": 88,
+	})
+	got := byMetric(e.Compute(snapshotFromFixture(t, "postgresql.prom", t0.Add(10*time.Second), map[string]float64{
+		"pg_stat_database_deadlocks": 1, "pg_stat_database_xact_rollback": 20,
+		"pg_stat_database_xact_commit": 1000, "pg_stat_database_temp_bytes": 1 << 20,
+	})))
+	checkFeatures(t, got, map[string]float64{
+		"pg_up": 1, "pg_connections_ratio": 0.88, "pg_connections": 88,
+		`pg_stat_database_deadlocks{datname="app"}`:          0.1,
+		`pg_stat_database_deadlocks{datname="postgres"}`:     0.1,
+		`pg_stat_database_xact_rollback{datname="app"}`:      2,
+		`pg_stat_database_xact_rollback{datname="postgres"}`: 2,
+		// app + postgres; template1 excluído.
+		"pg_transactions": 200,
+		`pg_stat_database_temp_bytes{datname="app"}`:      104857.6,
+		`pg_stat_database_temp_bytes{datname="postgres"}`: 104857.6,
+	})
+}
+
+func TestMySQLDriverFeatures(t *testing.T) {
+	e := NewEngine(loadDriver(t, "mysql.yaml").Metrics)
+	t0 := time.Unix(1000, 0)
+	checkFeatures(t, byMetric(e.Compute(snapshotFromFixture(t, "mysql.prom", t0, nil))), map[string]float64{
+		"mysql_up": 1, "mysql_connections_ratio": 140.0 / 151, "mysql_global_status_threads_running": 9,
+		"mysql_slave_status_slave_io_running": 1, "mysql_slave_status_slave_sql_running": 0,
+		"mysql_slave_status_seconds_behind_master": 42,
+	})
+	got := byMetric(e.Compute(snapshotFromFixture(t, "mysql.prom", t0.Add(10*time.Second), map[string]float64{
+		"mysql_global_status_slow_queries": 3, "mysql_global_status_aborted_connects": 1,
+		"mysql_global_status_innodb_row_lock_waits": 2, "mysql_global_status_queries": 50000,
+	})))
+	if got["mysql_global_status_slow_queries"] != 0.3 || got["mysql_global_status_aborted_connects"] != 0.1 ||
+		got["mysql_global_status_innodb_row_lock_waits"] != 0.2 || got["mysql_global_status_queries"] != 5000 {
+		t.Fatalf("taxas do MySQL incorretas: %v", got)
+	}
+}

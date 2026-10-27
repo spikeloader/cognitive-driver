@@ -1,0 +1,25 @@
+# Amostra no formato do prometheus-community/postgres_exporter.
+# TYPE pg_up gauge
+pg_up 1
+# TYPE pg_settings_max_connections gauge
+pg_settings_max_connections{server="/var/run/postgresql:5432"} 100
+# TYPE pg_stat_database_numbackends gauge
+pg_stat_database_numbackends{datid="16384",datname="app"} 85
+pg_stat_database_numbackends{datid="5",datname="postgres"} 3
+pg_stat_database_numbackends{datid="1",datname="template1"} 0
+# TYPE pg_stat_database_deadlocks counter
+pg_stat_database_deadlocks{datid="16384",datname="app"} 4
+pg_stat_database_deadlocks{datid="5",datname="postgres"} 0
+pg_stat_database_deadlocks{datid="1",datname="template1"} 0
+# TYPE pg_stat_database_xact_rollback counter
+pg_stat_database_xact_rollback{datid="16384",datname="app"} 200
+pg_stat_database_xact_rollback{datid="5",datname="postgres"} 10
+pg_stat_database_xact_rollback{datid="1",datname="template1"} 0
+# TYPE pg_stat_database_xact_commit counter
+pg_stat_database_xact_commit{datid="16384",datname="app"} 500000
+pg_stat_database_xact_commit{datid="5",datname="postgres"} 9000
+pg_stat_database_xact_commit{datid="1",datname="template1"} 7
+# TYPE pg_stat_database_temp_bytes counter
+pg_stat_database_temp_bytes{datid="16384",datname="app"} 1e9
+pg_stat_database_temp_bytes{datid="5",datname="postgres"} 0
+pg_stat_database_temp_bytes{datid="1",datname="template1"} 0

@@ -1,0 +1,85 @@
+# Driver do Redis. Requer o prometheus-redis-exporter (oliver006/redis_exporter)
+# em 127.0.0.1:9121 (sudo scripts/enable-service.sh redis faz a configuração).
+drivers:
+  - name: ai-redis-health
+    version: 0.1.0
+    mode: observe_only
+    targets:
+      - host: local
+        url: http://127.0.0.1:9121/metrics
+    metrics:
+      # Disponibilidade: o exporter publica redis_up=0 quando não conecta.
+      - name: redis_up
+        rule: {equals: 1, severity: critical}
+        describe:
+          label: Redis disponível
+          unit: bool
+          down:
+            cause: Redis parado, sem memória para aceitar conexões ou exporter sem acesso (senha, bind, socket).
+            recommendation: Verificar systemctl status redis-server, o log em /var/log/redis/ e redis-cli ping.
+      # Conexões recusadas por maxclients.
+      - name: redis_rejected_connections_total
+        rule: {above: 0, severity: high}
+        describe:
+          label: Conexões recusadas pelo Redis
+          unit: per_second
+          up:
+            cause: O limite maxclients foi atingido (vazamento de conexões na aplicação ou pool mal dimensionado).
+            recommendation: Ver CLIENT LIST agrupando por addr/name, revisar o pool de conexões da aplicação e, se legítimo, aumentar maxclients.
+      # Uso de memória em relação ao maxmemory (sem maxmemory, a razão não é calculada).
+      - name: redis_memory_used_bytes
+        alias: redis_memory_ratio
+        divide_by: {name: redis_memory_max_bytes}
+        rule: {above: 0.9, severity: high}
+        describe:
+          label: Memória do Redis (proporção do maxmemory)
+          unit: ratio
+          up:
+            cause: O dataset está perto do maxmemory; a partir dele o Redis despeja chaves ou recusa escritas, conforme maxmemory-policy.
+            recommendation: Ver MEMORY STATS e as maiores chaves (redis-cli --bigkeys), conferir TTLs e a maxmemory-policy.
+      # Persistência: último BGSAVE falhou (escritas podem ser recusadas com stop-writes-on-bgsave-error).
+      - name: redis_rdb_last_bgsave_status
+        rule: {equals: 1, severity: high}
+        describe:
+          label: Último snapshot RDB do Redis
+          unit: bool
+          down:
+            cause: O BGSAVE falhou (disco cheio, permissão no diretório, fork sem memória).
+            recommendation: Ver o log do Redis, o espaço em disco no diretório 'dir' e vm.overcommit_memory.
+      # Réplica sem link com o primário (a métrica só existe em réplicas).
+      - name: redis_master_link_up
+        rule: {equals: 1, severity: critical}
+        describe:
+          label: Link da réplica Redis com o primário
+          unit: bool
+          down:
+            cause: A réplica perdeu a conexão com o primário (rede, autenticação, primário fora do ar).
+            recommendation: Ver INFO replication na réplica e no primário e a conectividade entre eles.
+      # Chaves despejadas: aumento indica pressão de memória.
+      - name: redis_evicted_keys_total
+        min_stddev: 1
+        describe:
+          label: Chaves despejadas do Redis
+          unit: per_second
+          up:
+            cause: O Redis está removendo chaves para caber no maxmemory; o cache perde eficiência.
+            recommendation: Comparar com o crescimento do dataset e a taxa de misses; avaliar mais memória ou TTLs menores.
+      # Comandos por segundo e misses (cache frio, chave inexistente em loop).
+      - name: redis_commands_processed_total
+        describe: {label: Comandos do Redis, unit: per_second}
+      - name: redis_keyspace_misses_total
+        min_stddev: 5
+        describe:
+          label: Misses no keyspace do Redis
+          unit: per_second
+          up:
+            cause: Leituras de chaves inexistentes acima do normal (cache invalidado, deploy, chave com nome errado).
+            recommendation: Correlacionar com deploys e flushes; ver as chaves mais acessadas com redis-cli --hotkeys (requer política LFU).
+      - name: redis_connected_clients
+        min_stddev: 5
+        describe:
+          label: Clientes conectados ao Redis
+          unit: count
+          up:
+            cause: Mais conexões que o habitual (pico de tráfego, pool sem limite, conexões não fechadas).
+            recommendation: Ver CLIENT LIST agrupando por origem e o tamanho dos pools das aplicações.

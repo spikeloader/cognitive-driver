@@ -16,6 +16,15 @@ api:
   listen: ":8088"
   auth_token_env: MICRO_AI_TOKEN  # vazio = /predict e /events sem autenticação
 
+# Processo responsável: ao emitir um evento de métrica com "attribute", lê o
+# process-exporter do host (mesmo endereço do node_exporter, nesta porta) e
+# grava no evento os grupos de processos que mais consomem o recurso.
+# Instale com: sudo scripts/enable-service.sh processes
+attribution:
+  process_exporter_port: 9256   # 0 desativa
+  sample_gap: 2s                # intervalo entre as 2 amostras (CPU e I/O são taxas)
+  top: 5                        # grupos guardados no evento
+
 # Cada driver é uma micro-IA independente; enabled: false o desativa.
 # Métricas aceitam a forma curta (nome) ou a forma com filtros de labels
 # (regex ancorada). Contadores (_total) são convertidos em taxa por segundo
@@ -36,7 +45,9 @@ drivers:
     metrics:
       - name: node_cpu_seconds_total          # núcleos ocupados
         exclude: {mode: "idle|iowait|steal"}
-      - node_memory_MemAvailable_bytes
+        attribute: cpu                        # responsável: quem mais usa CPU
+      - name: node_memory_MemAvailable_bytes
+        attribute: memory                     # responsável: maior memória residente
       - name: node_network_receive_bytes_total
         exclude: {device: "lo|veth.*|docker.*|br-.*|virbr.*"}
 
@@ -53,3 +64,4 @@ drivers:
     metrics:
       - name: node_disk_io_time_seconds_total  # fração do tempo com I/O ativo
         exclude: {device: "loop.*|ram.*|sr.*"}
+        attribute: io                          # responsável: quem mais lê/escreve

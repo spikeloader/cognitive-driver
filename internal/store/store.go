@@ -70,6 +70,9 @@ type Event struct {
 	// LastSeen é a emissão mais recente; Timestamp guarda a primeira.
 	LastSeen    time.Time `json:"last_seen"`
 	Occurrences int       `json:"occurrences"`
+	// Attribution aponta os processos que mais consumiam o recurso no
+	// momento da observação de pico (attribution.Result em JSON).
+	Attribution json.RawMessage `json:"attribution,omitempty"`
 }
 
 type Store struct {
@@ -137,6 +140,7 @@ var addedColumns = []struct{ name, def string }{
 	{"rule", "TEXT NOT NULL DEFAULT ''"},
 	{"last_seen", "TEXT NOT NULL DEFAULT ''"},
 	{"occurrences", "INTEGER NOT NULL DEFAULT 1"},
+	{"attribution", "TEXT NOT NULL DEFAULT ''"},
 }
 
 func migrate(db *sql.DB) error {
@@ -250,12 +254,13 @@ func insertEvent(ctx context.Context, db execer, e Event) error {
 	_, err := db.ExecContext(ctx, `INSERT INTO events (
 		id, timestamp, host, driver, driver_version, mode, metric, metric_label, unit, detector, rule, value,
 		baseline_mean, baseline_stddev, zscore, score, severity, explanation,
-		probable_cause, recommendation, evidence, status, feedback, updated_at, last_seen, occurrences
-	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		probable_cause, recommendation, evidence, status, feedback, updated_at, last_seen, occurrences, attribution
+	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		e.ID, e.Timestamp.UTC().Format(tsLayout), e.Host, e.Driver, e.DriverVersion, e.Mode,
 		e.Metric, e.MetricLabel, e.Unit, detectorOrDefault(e.Detector), e.Rule, e.Value, e.BaselineMean, e.BaselineStddev, e.ZScore, e.Score, e.Severity,
 		e.Explanation, e.ProbableCause, e.Recommendation, string(e.Evidence), e.Status,
-		e.Feedback, e.UpdatedAt.UTC().Format(tsLayout), e.LastSeen.UTC().Format(tsLayout), e.Occurrences)
+		e.Feedback, e.UpdatedAt.UTC().Format(tsLayout), e.LastSeen.UTC().Format(tsLayout), e.Occurrences,
+		string(e.Attribution))
 	return err
 }
 
@@ -290,6 +295,9 @@ func (s *Store) RecordEvent(ctx context.Context, e Event) (Event, bool, error) {
 		out = e
 		out.ID, out.Timestamp, out.Status, out.Feedback = cur.ID, cur.Timestamp, cur.Status, cur.Feedback
 	}
+	if len(out.Attribution) == 0 { // pico sem atribuição: aproveita a desta emissão
+		out.Attribution = e.Attribution
+	}
 	out.Occurrences = cur.Occurrences + 1
 	out.LastSeen = cur.LastSeen
 	if e.Timestamp.After(out.LastSeen) {
@@ -302,12 +310,13 @@ func (s *Store) RecordEvent(ctx context.Context, e Event) (Event, bool, error) {
 	_, err = tx.ExecContext(ctx, `UPDATE events SET
 		driver_version = ?, mode = ?, metric_label = ?, unit = ?, detector = ?, rule = ?, value = ?,
 		baseline_mean = ?, baseline_stddev = ?, zscore = ?, score = ?, severity = ?, explanation = ?,
-		probable_cause = ?, recommendation = ?, evidence = ?, updated_at = ?, last_seen = ?, occurrences = ?
+		probable_cause = ?, recommendation = ?, evidence = ?, updated_at = ?, last_seen = ?, occurrences = ?,
+		attribution = ?
 		WHERE id = ?`,
 		out.DriverVersion, out.Mode, out.MetricLabel, out.Unit, detectorOrDefault(out.Detector), out.Rule, out.Value,
 		out.BaselineMean, out.BaselineStddev, out.ZScore, out.Score, out.Severity, out.Explanation,
 		out.ProbableCause, out.Recommendation, string(out.Evidence), out.UpdatedAt.UTC().Format(tsLayout),
-		out.LastSeen.UTC().Format(tsLayout), out.Occurrences, out.ID)
+		out.LastSeen.UTC().Format(tsLayout), out.Occurrences, string(out.Attribution), out.ID)
 	if err != nil {
 		return e, false, err
 	}
@@ -323,15 +332,15 @@ func detectorOrDefault(d string) string {
 
 const eventColumns = `id, timestamp, host, driver, driver_version, mode, metric, metric_label, unit, detector, rule, value,
 	baseline_mean, baseline_stddev, zscore, score, severity, explanation,
-	probable_cause, recommendation, evidence, status, feedback, updated_at, last_seen, occurrences`
+	probable_cause, recommendation, evidence, status, feedback, updated_at, last_seen, occurrences, attribution`
 
 func scanEvent(row interface{ Scan(...any) error }) (Event, error) {
 	var e Event
-	var ts, updated, lastSeen, evidence string
+	var ts, updated, lastSeen, evidence, attribution string
 	err := row.Scan(&e.ID, &ts, &e.Host, &e.Driver, &e.DriverVersion, &e.Mode, &e.Metric,
 		&e.MetricLabel, &e.Unit, &e.Detector, &e.Rule, &e.Value, &e.BaselineMean, &e.BaselineStddev, &e.ZScore, &e.Score, &e.Severity,
 		&e.Explanation, &e.ProbableCause, &e.Recommendation, &evidence, &e.Status,
-		&e.Feedback, &updated, &lastSeen, &e.Occurrences)
+		&e.Feedback, &updated, &lastSeen, &e.Occurrences, &attribution)
 	if err != nil {
 		return e, err
 	}
@@ -342,6 +351,9 @@ func scanEvent(row interface{ Scan(...any) error }) (Event, error) {
 		e.LastSeen = e.Timestamp
 	}
 	e.Evidence = json.RawMessage(evidence)
+	if attribution != "" {
+		e.Attribution = json.RawMessage(attribution)
+	}
 	return e, nil
 }
 

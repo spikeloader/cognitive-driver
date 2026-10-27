@@ -1,0 +1,94 @@
+# Driver do MySQL/MariaDB. Requer o prometheus-mysqld-exporter em 127.0.0.1:9104
+# (sudo scripts/enable-service.sh mysql cria o usuário de monitoramento).
+drivers:
+  - name: ai-mysql-health
+    version: 0.1.0
+    mode: observe_only
+    targets:
+      - host: local
+        url: http://127.0.0.1:9104/metrics
+    metrics:
+      - name: mysql_up
+        rule: {equals: 1, severity: critical}
+        describe:
+          label: MySQL disponível
+          unit: bool
+          down:
+            cause: MySQL/MariaDB parado, sem aceitar conexões ou exporter sem permissão.
+            recommendation: Verificar systemctl status mysql (ou mariadb), o log de erros e mysqladmin ping.
+      # Conexões em uso / max_connections.
+      - name: mysql_global_status_threads_connected
+        alias: mysql_connections_ratio
+        divide_by: {name: mysql_global_variables_max_connections}
+        rule: {above: 0.9, severity: high}
+        describe:
+          label: Conexões do MySQL (proporção do max_connections)
+          unit: ratio
+          up:
+            cause: As conexões estão perto do max_connections; novas conexões serão recusadas (Too many connections).
+            recommendation: Ver SHOW PROCESSLIST agrupando por usuário e host, conexões em Sleep e o pool da aplicação.
+      # Threads executando ao mesmo tempo: picos indicam contenção (locks, I/O).
+      - name: mysql_global_status_threads_running
+        min_stddev: 3
+        describe:
+          label: Threads executando no MySQL
+          unit: count
+          up:
+            cause: Muitas consultas simultâneas em execução (lock contention, consulta lenta em massa, pico de carga).
+            recommendation: Ver SHOW FULL PROCESSLIST e performance_schema para consultas longas e esperas por lock.
+      - name: mysql_global_status_slow_queries
+        type: counter
+        min_stddev: 0.05
+        describe:
+          label: Consultas lentas no MySQL
+          unit: per_second
+          up:
+            cause: Mais consultas acima de long_query_time que o habitual (falta de índice, plano ruim, contenção).
+            recommendation: Ler o slow query log (pt-query-digest) e rodar EXPLAIN nas consultas mais frequentes.
+      # Falhas de conexão: senha errada, host não permitido, tentativas de força bruta.
+      - name: mysql_global_status_aborted_connects
+        type: counter
+        min_stddev: 0.05
+        describe:
+          label: Conexões abortadas no MySQL
+          unit: per_second
+          up:
+            cause: Tentativas de conexão falhando (credencial errada após deploy, host sem permissão ou força bruta).
+            recommendation: Ver o log de erros do MySQL e as origens; conferir credenciais das aplicações e o firewall da porta 3306.
+      - name: mysql_global_status_innodb_row_lock_waits
+        type: counter
+        min_stddev: 0.1
+        describe:
+          label: Esperas por lock de linha no InnoDB
+          unit: per_second
+          up:
+            cause: Transações esperando locks de linha de outras transações (transações longas, hot rows).
+            recommendation: Ver sys.innodb_lock_waits (ou information_schema) para bloqueadores e encurtar transações.
+      - name: mysql_global_status_queries
+        type: counter
+        describe: {label: Consultas do MySQL, unit: per_second}
+      # Replicação (as métricas só existem em réplicas).
+      - name: mysql_slave_status_slave_io_running
+        rule: {equals: 1, severity: critical}
+        describe:
+          label: Thread de I/O da replicação MySQL
+          unit: bool
+          down:
+            cause: A réplica parou de receber o binlog do primário (rede, credencial, binlog removido).
+            recommendation: Ver SHOW REPLICA STATUS (Last_IO_Error) e a conectividade com o primário.
+      - name: mysql_slave_status_slave_sql_running
+        rule: {equals: 1, severity: critical}
+        describe:
+          label: Thread SQL da replicação MySQL
+          unit: bool
+          down:
+            cause: A réplica parou de aplicar eventos (erro de chave duplicada, tabela ausente).
+            recommendation: Ver SHOW REPLICA STATUS (Last_SQL_Error) antes de pular eventos; a réplica pode estar divergente.
+      - name: mysql_slave_status_seconds_behind_master
+        rule: {above: 300, severity: high}
+        describe:
+          label: Atraso da réplica MySQL
+          unit: seconds
+          up:
+            cause: A réplica está atrasada (I/O lento, consultas pesadas no primário, aplicação single-threaded).
+            recommendation: Ver SHOW REPLICA STATUS e a carga da réplica; avaliar replica_parallel_workers.

@@ -1,0 +1,84 @@
+# Driver do PostgreSQL. Requer o prometheus-postgres-exporter em 127.0.0.1:9187
+# (sudo scripts/enable-service.sh postgresql cria a role de monitoramento).
+drivers:
+  - name: ai-postgresql-health
+    version: 0.1.0
+    mode: observe_only
+    targets:
+      - host: local
+        url: http://127.0.0.1:9187/metrics
+    metrics:
+      - name: pg_up
+        rule: {equals: 1, severity: critical}
+        describe:
+          label: PostgreSQL disponível
+          unit: bool
+          down:
+            cause: PostgreSQL parado, sem aceitar conexões (max_connections, recovery) ou exporter sem permissão (pg_hba.conf).
+            recommendation: Verificar systemctl status postgresql, o log em /var/log/postgresql/ e pg_isready.
+      # Conexões em uso / max_connections.
+      - name: pg_stat_database_numbackends
+        alias: pg_connections_ratio
+        divide_by: {name: pg_settings_max_connections}
+        rule: {above: 0.9, severity: high}
+        describe:
+          label: Conexões do PostgreSQL (proporção do max_connections)
+          unit: ratio
+          up:
+            cause: As conexões estão perto do max_connections; novas conexões serão recusadas (FATAL too many connections).
+            recommendation: Ver pg_stat_activity agrupando por usuário, aplicação e estado (idle in transaction); usar um pooler (PgBouncer) se a carga for legítima.
+      # Deadlocks por banco.
+      - name: pg_stat_database_deadlocks
+        type: counter
+        group_by: [datname]
+        exclude: {datname: "template.*"}
+        rule: {above: 0, severity: high}
+        describe:
+          label: Deadlocks no PostgreSQL
+          unit: per_second
+          up:
+            cause: Transações concorrentes bloquearam umas às outras e uma foi abortada.
+            recommendation: Ver o log (com log_lock_waits) para as consultas envolvidas e padronizar a ordem de acesso às linhas/tabelas.
+      # Rollbacks por banco: aumento indica erros na aplicação.
+      - name: pg_stat_database_xact_rollback
+        type: counter
+        group_by: [datname]
+        exclude: {datname: "template.*"}
+        min_stddev: 0.5
+        describe:
+          label: Rollbacks no PostgreSQL
+          unit: per_second
+          up:
+            cause: Mais transações abortadas que o habitual (erros de constraint, timeouts, deadlocks, deploy com bug).
+            recommendation: Ver os erros no log do PostgreSQL e da aplicação no mesmo período.
+      # Transações confirmadas por segundo (tráfego).
+      - name: pg_stat_database_xact_commit
+        type: counter
+        alias: pg_transactions
+        exclude: {datname: "template.*"}
+        describe: {label: Transações do PostgreSQL, unit: per_second}
+      # Consultas que transbordam para disco (work_mem insuficiente).
+      - name: pg_stat_database_temp_bytes
+        type: counter
+        group_by: [datname]
+        exclude: {datname: "template.*"}
+        min_stddev: 1048576
+        describe:
+          label: Arquivos temporários do PostgreSQL
+          unit: bytes_per_second
+          up:
+            cause: Ordenações e hashes maiores que work_mem estão sendo gravados em disco, deixando consultas lentas.
+            recommendation: Ativar log_temp_files e ver as consultas responsáveis (pg_stat_statements); avaliar índices ou work_mem por sessão.
+      - name: pg_stat_database_numbackends
+        alias: pg_connections
+        min_stddev: 5
+        describe: {label: Conexões abertas no PostgreSQL, unit: count}
+      # Atraso da réplica (a métrica só tem valor em réplicas).
+      - name: pg_replication_lag_seconds
+        rule: {above: 300, severity: high}
+        describe:
+          label: Atraso da réplica PostgreSQL
+          unit: seconds
+          up:
+            cause: A réplica está atrasada em relação ao primário (rede, I/O da réplica ou consultas longas bloqueando o replay).
+            recommendation: Ver pg_stat_replication no primário e pg_stat_wal_receiver na réplica; checar consultas longas na réplica.

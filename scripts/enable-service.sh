@@ -2,11 +2,19 @@
 # Ativa o monitoramento de um serviço: configura o exporter, valida e
 # instala o driver correspondente em /etc/cognitive-driver/drivers.d.
 #
-# Uso: sudo scripts/enable-service.sh <nginx|apache|docker|php-fpm|swoole|cron> [opções]
+# Uso: sudo scripts/enable-service.sh <serviço> [opções]
+#   serviços: nginx apache docker php-fpm swoole cron processes
+#             redis memcached postgresql mysql
 #   --disable           remove o driver (o exporter e as configurações do
 #                       serviço são mantidos)
 #   --status-url URL    (apache) URL do mod_status; padrão http://127.0.0.1/server-status?auto
 #   --metrics-url URL   (swoole) URL do /metrics da aplicação; padrão http://127.0.0.1:9501/metrics
+#   --listen ADDR       (processes) endereço do process-exporter; padrão 127.0.0.1:9256
+#                       (use 0.0.0.0:9256 quando o cognitive-driver central coleta este host)
+#   --with-io           (processes) concede CAP_SYS_PTRACE ao exporter para ler o I/O
+#                       de disco de processos de outros usuários (eventos de disco)
+#   --redis-addr URL    (redis) padrão redis://127.0.0.1:6379; com requirepass, passe a
+#                       senha em REDIS_PASSWORD (sudo REDIS_PASSWORD=... scripts/...)
 #   --yes               (docker) não pede confirmação para reiniciar o dockerd
 #
 # O que cada serviço recebe:
@@ -17,6 +25,15 @@
 #   swoole   só o driver: exige a aplicação expondo deploy/swoole/metrics.php
 #   cron     só o driver (lê o node_exporter); os jobs são envolvidos com
 #            scripts/wrap-cron-d.sh em cada host
+#   processes  prometheus-process-exporter agrupando processos por nome: os
+#            eventos de CPU, memória e disco passam a indicar o processo
+#            responsável (não instala driver)
+#   redis      prometheus-redis-exporter em 127.0.0.1:9121
+#   memcached  só o driver: exige o memcached_exporter já respondendo em 127.0.0.1:9150
+#   postgresql prometheus-postgres-exporter em 127.0.0.1:9187 + role "prometheus"
+#            (pg_monitor, autenticação peer pelo socket, sem senha)
+#   mysql      prometheus-mysqld-exporter em 127.0.0.1:9104 + usuário prometheus@localhost
+#            (auth_socket/unix_socket, sem senha; PROCESS, REPLICATION CLIENT, SELECT)
 #
 # Todos os endpoints ficam apenas em loopback.
 set -euo pipefail
@@ -27,13 +44,16 @@ ETC=/etc/$NAME
 DROPIN=$ETC/drivers.d
 SERVICE=${1:-}
 shift || true
-DISABLE=0 YES=0 STATUS_URL="http://127.0.0.1/server-status?auto" METRICS_URL=http://127.0.0.1:9501/metrics
+DISABLE=0 YES=0 STATUS_URL="http://127.0.0.1/server-status?auto" METRICS_URL=http://127.0.0.1:9501/metrics LISTEN=127.0.0.1:9256 WITH_IO=0 REDIS_ADDR=redis://127.0.0.1:6379
 while (( $# )); do
   case $1 in
     --disable) DISABLE=1 ;;
     --yes) YES=1 ;;
     --status-url) STATUS_URL=${2:?--status-url requer uma URL}; shift ;;
     --metrics-url) METRICS_URL=${2:?--metrics-url requer uma URL}; shift ;;
+    --listen) LISTEN=${2:?--listen requer um endereço}; shift ;;
+    --with-io) WITH_IO=1 ;;
+    --redis-addr) REDIS_ADDR=${2:?--redis-addr requer uma URL}; shift ;;
     *) echo "opção desconhecida: $1" >&2; exit 2 ;;
   esac
   shift
@@ -44,18 +64,21 @@ warn() { printf '\033[33mAVISO:\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[31mERRO:\033[0m %s\n' "$*" >&2; exit 1; }
 
 case $SERVICE in
-  nginx|apache|docker|php-fpm|swoole|cron) ;;
-  -h|--help|"") sed -n '2,21p' "$0"; exit 0 ;;
-  *) die "serviço desconhecido: $SERVICE (use nginx, apache, docker, php-fpm, swoole ou cron)" ;;
+  nginx|apache|docker|php-fpm|swoole|cron|processes|redis|memcached|postgresql|mysql) ;;
+  -h|--help|"") sed -n '2,38p' "$0"; exit 0 ;;
+  *) die "serviço desconhecido: $SERVICE (veja --help)" ;;
 esac
 [[ $EUID -eq 0 ]] || die "execute com sudo: sudo $0 $SERVICE"
 [[ -f $ETC/config.yaml ]] || die "cognitive-driver não está instalado (sudo scripts/install.sh)"
 TEMPLATE=deploy/drivers/$SERVICE.yaml
-[[ -f $TEMPLATE ]] || die "modelo $TEMPLATE não encontrado"
+[[ $SERVICE == processes || -f $TEMPLATE ]] || die "modelo $TEMPLATE não encontrado"
 
 wait_for() { # url padrão tentativas
   for _ in $(seq "${3:-20}"); do
-    curl -sf -m 3 "$1" 2>/dev/null | grep -q "$2" && return 0
+    # Sem pipe: com pipefail, o grep -q fecharia o pipe no 1º match e o curl
+    # (saídas grandes, como a do process-exporter) sairia com erro de SIGPIPE.
+    local out
+    out=$(curl -sf -m 3 "$1" 2>/dev/null) && grep -q "$2" <<<"$out" && return 0
     sleep 1
   done
   return 1
@@ -66,7 +89,15 @@ restart_driver_service() {
   systemctl restart $NAME
 }
 
+PROCESS_DROPIN=/etc/systemd/system/prometheus-process-exporter.service.d/cognitive-driver.conf
+
 # ---------------------------------------------------------------- desativar
+if (( DISABLE )) && [[ $SERVICE == processes ]]; then
+  systemctl disable --now prometheus-process-exporter 2>/dev/null || true
+  rm -f "$PROCESS_DROPIN" && systemctl daemon-reload
+  say "process-exporter parado; os próximos eventos saem sem o processo responsável"
+  exit 0
+fi
 if (( DISABLE )); then
   if [[ -f $DROPIN/$SERVICE.yaml ]]; then
     rm -f "$DROPIN/$SERVICE.yaml"
@@ -85,10 +116,13 @@ apt_install() {
 }
 
 # Define ARGS do exporter em /etc/default, guardando o original uma vez.
-set_exporter_args() { # pacote args
+# O 3º argumento são linhas extras (variáveis de ambiente do exporter); com
+# segredo, o arquivo fica legível só para root e o grupo prometheus.
+set_exporter_args() { # pacote args [linhas-extras]
   local f=/etc/default/$1
   [[ -f $f && ! -f $f.cognitive-driver.bak ]] && cp -p "$f" "$f.cognitive-driver.bak"
-  printf '# Gerado por cognitive-driver (scripts/enable-service.sh). Original: %s.cognitive-driver.bak\nARGS="%s"\n' "$f" "$2" > "$f"
+  printf '# Gerado por cognitive-driver (scripts/enable-service.sh). Original: %s.cognitive-driver.bak\nARGS="%s"\n%s' "$f" "$2" "${3:+$3$'\n'}" > "$f"
+  if [[ -n ${3:-} ]]; then chown root:prometheus "$f" && chmod 0640 "$f"; fi
   systemctl enable "$1" >/dev/null 2>&1
   systemctl restart "$1"
 }
@@ -211,9 +245,117 @@ setup_cron() {
   [[ -d $TEXTFILE_DIR ]] || warn "$TEXTFILE_DIR não existe; o cron-wrap grava as métricas lá (CRON_WRAP_DIR muda o destino)"
 }
 
+# ---------------------------------------------------------------- processes
+# Um grupo por nome de comando (comm): "php-fpm8.3", "postgres", "stress-ng".
+PROCESS_CONFIG=/etc/prometheus/process-exporter-cognitive-driver.yml
+setup_processes() {
+  # /proc/<pid>/io de outros usuários exige ptrace; sem isso o I/O vem zerado
+  # e eventos de disco ficam sem responsável. Opt-in: amplia o que o exporter lê.
+  if (( WITH_IO )); then
+    install -d -m 0755 "${PROCESS_DROPIN%/*}"
+    printf '# Gerado por cognitive-driver (enable-service.sh processes --with-io).\n[Service]\nAmbientCapabilities=CAP_SYS_PTRACE\nCapabilityBoundingSet=CAP_SYS_PTRACE\n' > "$PROCESS_DROPIN"
+    say "process-exporter com CAP_SYS_PTRACE (I/O de disco por processo)"
+  else
+    rm -f "$PROCESS_DROPIN"
+  fi
+  systemctl daemon-reload
+  apt_install prometheus-process-exporter
+  install -d -m 0755 /etc/prometheus
+  cat > "$PROCESS_CONFIG" <<'CONF'
+# Gerado por cognitive-driver (scripts/enable-service.sh processes).
+process_names:
+  - name: "{{.Comm}}"
+    cmdline:
+      - '.+'
+CONF
+  chmod 0644 "$PROCESS_CONFIG"
+  # Sem métricas por thread: a saída cai de ~10 mil para ~2 mil linhas.
+  set_exporter_args prometheus-process-exporter "-config.path=$PROCESS_CONFIG -web.listen-address=$LISTEN -threads=false"
+  local probe=$LISTEN
+  [[ ${probe%:*} == 0.0.0.0 ]] && probe=127.0.0.1:${LISTEN##*:}
+  wait_for "http://$probe/metrics" '^namedprocess_namegroup_cpu_seconds_total' ||
+    die "process-exporter não publicou métricas em $LISTEN (journalctl -u prometheus-process-exporter)"
+}
+
+# ---------------------------------------------------------------- redis
+setup_redis() {
+  command -v redis-server >/dev/null || die "Redis não está instalado neste host"
+  local env=""
+  if [[ -n ${REDIS_PASSWORD:-} ]]; then
+    [[ $REDIS_PASSWORD != *[\"\$\`\\]* ]] || die "REDIS_PASSWORD não pode conter aspas, \$, \` ou \\"
+    env="REDIS_PASSWORD=\"$REDIS_PASSWORD\""
+  fi
+  apt_install prometheus-redis-exporter
+  set_exporter_args prometheus-redis-exporter "-redis.addr=$REDIS_ADDR -web.listen-address=127.0.0.1:9121" "$env"
+  wait_for http://127.0.0.1:9121/metrics '^redis_up 1' ||
+    die "prometheus-redis-exporter não reportou redis_up 1 (Redis com senha? use REDIS_PASSWORD=...; veja journalctl -u prometheus-redis-exporter)"
+}
+
+# ---------------------------------------------------------------- memcached
+setup_memcached() {
+  wait_for http://127.0.0.1:9150/metrics '^memcached_up 1' 5 ||
+    die "memcached_exporter não reportou memcached_up 1 em 127.0.0.1:9150 (instale-o: github.com/prometheus/memcached_exporter)"
+}
+
+# ---------------------------------------------------------------- postgresql
+# Role sem senha: o exporter roda como o usuário prometheus e entra pelo
+# socket local com autenticação peer (padrão do pg_hba.conf no Debian/Ubuntu).
+setup_postgresql() {
+  command -v psql >/dev/null || die "PostgreSQL não está instalado neste host"
+  runuser -u postgres -- psql -qtAc 'SELECT 1' >/dev/null 2>&1 || die "não foi possível conectar como postgres pelo socket local"
+  apt_install prometheus-postgres-exporter
+  if ! runuser -u postgres -- psql -qtAc "SELECT 1 FROM pg_roles WHERE rolname = 'prometheus'" | grep -q 1; then
+    say "criando a role prometheus (pg_monitor)"
+    runuser -u postgres -- psql -qc 'CREATE ROLE prometheus LOGIN' >/dev/null
+  fi
+  runuser -u postgres -- psql -qc 'GRANT pg_monitor TO prometheus' >/dev/null
+  set_exporter_args prometheus-postgres-exporter "--web.listen-address=127.0.0.1:9187" \
+    'DATA_SOURCE_NAME="user=prometheus host=/var/run/postgresql dbname=postgres sslmode=disable"'
+  wait_for http://127.0.0.1:9187/metrics '^pg_up 1' ||
+    die "prometheus-postgres-exporter não reportou pg_up 1 (pg_hba.conf permite peer para prometheus? journalctl -u prometheus-postgres-exporter)"
+}
+
+# ---------------------------------------------------------------- mysql
+MYSQL_CNF=/etc/prometheus/mysqld-exporter-cognitive-driver.cnf
+setup_mysql() {
+  command -v mysql >/dev/null || die "MySQL/MariaDB não está instalado neste host"
+  mysql -e 'SELECT 1' >/dev/null 2>&1 || die "não foi possível conectar como root pelo socket local (mysql -e 'SELECT 1')"
+  apt_install prometheus-mysqld-exporter
+  local auth="IDENTIFIED WITH auth_socket"
+  mysql --version | grep -qi mariadb && auth="IDENTIFIED VIA unix_socket"
+  say "garantindo o usuário prometheus@localhost (somente leitura de status)"
+  mysql -e "CREATE USER IF NOT EXISTS 'prometheus'@'localhost' $auth WITH MAX_USER_CONNECTIONS 3;
+            GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'prometheus'@'localhost';" ||
+    die "falha ao criar o usuário de monitoramento no MySQL"
+  local sock
+  sock=$(mysql -NBe "SELECT @@socket")
+  install -d -m 0755 /etc/prometheus
+  printf '# Gerado por cognitive-driver (scripts/enable-service.sh mysql).\n[client]\nuser=prometheus\nsocket=%s\n' "$sock" > "$MYSQL_CNF"
+  chown root:prometheus "$MYSQL_CNF" && chmod 0640 "$MYSQL_CNF"
+  set_exporter_args prometheus-mysqld-exporter "--config.my-cnf=$MYSQL_CNF --web.listen-address=127.0.0.1:9104"
+  wait_for http://127.0.0.1:9104/metrics '^mysql_up 1' ||
+    die "prometheus-mysqld-exporter não reportou mysql_up 1 (journalctl -u prometheus-mysqld-exporter)"
+}
+
 # ---------------------------------------------------------------- driver
 say "configurando $SERVICE"
 "setup_${SERVICE//-/_}"
+
+if [[ $SERVICE == processes ]]; then
+  port=$(sed -n 's/^  process_exporter_port: *\([0-9]*\).*/\1/p' $ETC/config.yaml)
+  if [[ ${port:-9256} == 0 ]]; then
+    warn "attribution.process_exporter_port está 0 em $ETC/config.yaml: defina 9256 para usar o process-exporter"
+  elif [[ ${port:-9256} != "${LISTEN##*:}" ]]; then
+    warn "o process-exporter escuta na porta ${LISTEN##*:}, mas attribution.process_exporter_port é ${port:-9256}"
+  fi
+  if (( WITH_IO )); then
+    say "process-exporter ativo em $LISTEN; novos eventos de CPU, memória e disco indicam o processo responsável"
+  else
+    say "process-exporter ativo em $LISTEN; novos eventos de CPU e memória indicam o processo responsável"
+    echo "    Eventos de disco precisam de --with-io (concede CAP_SYS_PTRACE ao exporter para ler o I/O de outros usuários)."
+  fi
+  exit 0
+fi
 
 host=$(sed -n 's/^    - host: *\([^ #]*\).*/\1/p' $ETC/config.yaml | head -1)
 [[ -n $host ]] || host=$(hostname -s)

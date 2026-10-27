@@ -1,0 +1,24 @@
+# Amostra no formato do oliver006/redis_exporter.
+# HELP redis_up Information about the Redis instance
+# TYPE redis_up gauge
+redis_up 1
+# TYPE redis_connected_clients gauge
+redis_connected_clients 42
+# TYPE redis_rejected_connections_total counter
+redis_rejected_connections_total 3
+# TYPE redis_memory_used_bytes gauge
+redis_memory_used_bytes 943718400
+# TYPE redis_memory_max_bytes gauge
+redis_memory_max_bytes 1073741824
+# TYPE redis_rdb_last_bgsave_status gauge
+redis_rdb_last_bgsave_status 1
+# TYPE redis_evicted_keys_total counter
+redis_evicted_keys_total 120
+# TYPE redis_commands_processed_total counter
+redis_commands_processed_total 1000000
+# TYPE redis_keyspace_misses_total counter
+redis_keyspace_misses_total 5000
+# TYPE redis_keyspace_hits_total counter
+redis_keyspace_hits_total 90000
+# TYPE redis_instance_info gauge
+redis_instance_info{executable="/usr/bin/redis-server",os="Linux",redis_build_id="",redis_mode="standalone",redis_version="7.4.2",role="master"} 1

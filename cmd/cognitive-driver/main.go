@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/spikeloader/cognitive-driver/internal/api"
+	"github.com/spikeloader/cognitive-driver/internal/attribution"
 	"github.com/spikeloader/cognitive-driver/internal/collector"
 	"github.com/spikeloader/cognitive-driver/internal/config"
 	"github.com/spikeloader/cognitive-driver/internal/driver"
@@ -134,6 +135,19 @@ func run(configPath string) error {
 		Metrics:  metrics,
 		Status:   status,
 		Log:      log,
+	}
+	// O process-exporter de cada host fica no mesmo endereço do node_exporter.
+	if port := cfg.Attribution.Port(); port > 0 {
+		urls := map[string]string{}
+		for _, t := range cfg.Collector.Targets {
+			u, err := attribution.ProcessURL(t.URL, port)
+			if err != nil {
+				return fmt.Errorf("attribution: %w", err)
+			}
+			urls[t.Host] = u
+		}
+		r.Attributor = attribution.New(urls, cfg.Attribution.SampleGap, cfg.Collector.Timeout, cfg.Attribution.Top)
+		log.Info("attribution_enabled", "source", "process-exporter", "port", port, "hosts", len(urls))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

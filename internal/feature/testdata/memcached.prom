@@ -1,0 +1,14 @@
+# Amostra no formato do prometheus/memcached_exporter.
+# TYPE memcached_up gauge
+memcached_up 1
+# TYPE memcached_current_connections gauge
+memcached_current_connections 950
+# TYPE memcached_max_connections gauge
+memcached_max_connections 1024
+# TYPE memcached_items_evicted_total counter
+memcached_items_evicted_total 400
+# TYPE memcached_commands_total counter
+memcached_commands_total{command="get",status="hit"} 80000
+memcached_commands_total{command="get",status="miss"} 20000
+memcached_commands_total{command="set",status="hit"} 15000
+memcached_commands_total{command="delete",status="miss"} 10

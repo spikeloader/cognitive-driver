@@ -22,10 +22,13 @@ node_exporter → Collector → Feature Engine → Anomaly Engine → Explanatio
   exhausted, cron job failed).
 - **Every event is explained**: what was observed, how far from the baseline,
   probable cause and a concrete next step.
+- **Every event names a suspect**: CPU, memory and disk events show the
+  process group that was consuming the most of that resource at that moment.
 - **One binary, no external services**: SQLite for events and baselines, web
   UI embedded; about 22 MB RSS with the host and Docker drivers.
-- **Drivers in YAML**: host, nginx, Apache, Docker, PHP-FPM, Swoole and cron
-  jobs ship as examples; any Prometheus exporter becomes a driver without code.
+- **Drivers in YAML**: host, nginx, Apache, Docker, PHP-FPM, Swoole, cron
+  jobs, Redis, Memcached, PostgreSQL and MySQL ship ready to use; any
+  Prometheus exporter becomes a driver without code.
 
 > **Language note:** the web UI, the explanations and the recommendations
 > generated for events are currently in Brazilian Portuguese. Configuration,
@@ -103,7 +106,7 @@ make run         # build + run locally with configs/config.yaml (state in ./data
 make dist        # release packages in dist/ (linux amd64/arm64 + SHA256SUMS)
 ```
 
-## Monitored services (nginx, Apache, Docker, PHP, cron)
+## Monitored services (nginx, Apache, Docker, PHP, cron, Redis, Memcached, PostgreSQL, MySQL)
 
 Besides the host (CPU, memory, disk, network via node_exporter), each service
 has its own driver that reads the service's exporter. One command enables it:
@@ -117,6 +120,11 @@ sudo scripts/enable-service.sh docker    # metrics-addr in daemon.json (restarts
 sudo scripts/enable-service.sh php-fpm   # requires php-fpm_exporter on 127.0.0.1:9253
 sudo scripts/enable-service.sh swoole --metrics-url http://127.0.0.1:9501/metrics
 sudo scripts/enable-service.sh cron      # driver reading cron-wrap metrics through node_exporter
+sudo scripts/enable-service.sh processes # process-exporter: events name the responsible process
+sudo scripts/enable-service.sh redis     # prometheus-redis-exporter (REDIS_PASSWORD=... if requirepass)
+sudo scripts/enable-service.sh memcached # requires memcached_exporter on 127.0.0.1:9150
+sudo scripts/enable-service.sh postgresql # prometheus-postgres-exporter + passwordless "prometheus" role (pg_monitor, peer)
+sudo scripts/enable-service.sh mysql     # prometheus-mysqld-exporter + prometheus@localhost (socket auth, read-only grants)
 sudo scripts/enable-service.sh nginx --disable   # remove the driver
 ```
 
@@ -141,11 +149,52 @@ sudo scripts/enable-service.sh nginx --disable   # remove the driver
 | (per job) | job not started for more than 2 intervals (cron stopped, line removed) | rule · high |
 | | current run going for more than 1 interval (stuck/overlapping) | rule · high |
 | | duration > 80% of the interval | rule · medium |
+| `ai-redis-health` | Redis down; connections rejected (`maxclients`); memory > 90% of `maxmemory`; last RDB snapshot failed | rule · critical/high |
+| | replica lost its link to the primary | rule · critical |
+| | evictions, commands/s, keyspace misses and clients off baseline | statistical |
+| `ai-memcached-health` | Memcached down; connections > 90% of the limit (`-c`) | rule · critical/high |
+| | evictions, GET misses, commands/s and connections off baseline | statistical |
+| `ai-postgresql-health` | PostgreSQL down; connections > 90% of `max_connections` | rule · critical/high |
+| (per database) | deadlocks; replica lag > 5 min | rule · high |
+| | rollbacks and temp files (per database), transactions/s and connections off baseline | statistical |
+| `ai-mysql-health` | MySQL/MariaDB down; replication IO/SQL thread stopped | rule · critical |
+| | connections > 90% of `max_connections`; replica lag > 5 min | rule · high |
+| | running threads, slow queries, aborted connects, InnoDB row lock waits and queries/s off baseline | statistical |
 
 **Rules** fire without a baseline (after `consecutive_points` scrapes) and
 cover unambiguous states; **statistical detection** learns each metric's
 pattern. Every event carries a service-specific probable cause and
 recommendation.
+
+### Responsible process
+
+When an event is emitted for a metric with `attribute` (`cpu`, `memory` or
+`io`), cognitive-driver reads the host's
+[process-exporter](https://github.com/ncabatoff/process-exporter) twice, 2 s
+apart, and stores in the event the process groups (same command name) that
+were consuming the most of that resource. The UI shows the top one as
+**Responsible** at the top of the event, with its share of the total and the
+next ones; the event list shows its name.
+
+```bash
+sudo scripts/enable-service.sh processes                       # local: 127.0.0.1:9256
+sudo scripts/enable-service.sh processes --listen 0.0.0.0:9256 # host scraped by a central instance
+```
+
+- The process-exporter is looked up at the same address as the host's
+  node_exporter, on port `attribution.process_exporter_port` (default 9256;
+  0 disables). Nothing else to configure per host.
+- CPU, memory and disk metrics of the host have `attribute` by default; any
+  driver metric can declare it, and `attribute: none` turns it off.
+- It points to who was consuming the resource at that moment, not to a
+  confirmed root cause. Network traffic is not attributed (the exporter has
+  no per-process network data).
+- If the process-exporter is unavailable the event is opened anyway, without
+  a responsible process.
+- Disk events need `--with-io`: the kernel only exposes `/proc/<pid>/io` of
+  other users' processes to `CAP_SYS_PTRACE`, which this option grants to the
+  process-exporter (opt-in, since it widens what the exporter can read).
+  Without it, CPU and memory events are attributed and disk events are not.
 
 ### PHP
 
@@ -185,10 +234,11 @@ sudo scripts/wrap-cron-d.sh --unwrap --apply   # revert
   `php`) are skipped by default, since editing them causes conffile conflicts
   on upgrades. Use `--include-packaged` to wrap them anyway.
 
-### Other services (PostgreSQL, Redis, …) without code
+### Other services without code
 
 Any Prometheus exporter becomes a driver with a file in `drivers.d/`. The
-templates in [deploy/drivers/](deploy/drivers/) show every feature:
+templates in [deploy/drivers/](deploy/drivers/) show every feature; this is a
+trimmed version of the Redis one:
 
 ```yaml
 drivers:
@@ -215,7 +265,8 @@ Metric fields: `match`/`exclude` (label regexes), `type`
 (counter/gauge/timestamp — timestamp becomes an age in seconds), `alias`,
 `group_by` (one feature and one event per label value, e.g. `[job]`, `[pool]`,
 instead of summing the series), `subtract`/`divide_by` (derived metrics),
-`rule` (`above`/`below`/`equals` + `severity`), `min_stddev` (absolute floor
+`attribute` (`cpu`/`memory`/`io`/`none`: resource used to name the
+responsible process), `rule` (`above`/`below`/`equals` + `severity`), `min_stddev` (absolute floor
 for the deviation, useful for small counts) and `describe` (`label`, `unit` —
 cores, bytes, bytes_per_second, ratio, per_second, count, milliseconds,
 seconds, bool — plus cause/recommendation for `up`/`down`). Validate with
@@ -251,6 +302,7 @@ page refreshes every 15 s while visible. Each event has a direct link
 | Anomaly | `|z| ≥ anomaly_threshold` (3.0), in either direction (spike or drop). |
 | Severity | low 3–4σ · medium 4–6σ · high 6–10σ · critical ≥ 10σ. Score = `1 - e^(-|z|/2)`. |
 | Freeze | Anomalous points stay out of the baseline until `baseline_freeze_points` (10 ≈ 2.5 min) in a row, so a spike does not inflate the deviation and mask its own detection. If the anomaly persists beyond that, the new level is learned. |
+| Responsible | For metrics with `attribute`, the process groups consuming the most CPU, memory or disk I/O at emission time (process-exporter, 2 samples). Stored with the peak observation. |
 | Event | Emitted after `consecutive_points` (3) anomalous points in a row, with a `cooldown` (5m) per host × metric. There is at most one active (open or acknowledged) event per driver × host × metric: re-emissions become occurrences of it. |
 | Action | The recommendation goes through the policy; in `observe_only` it is always blocked (`cognitive_driver_actions_blocked_total`). |
 
@@ -339,6 +391,7 @@ cmd/cognitive-driver/     main: configuration, wiring, HTTP server, shutdown
 internal/config/          YAML + defaults + validation
 internal/collector/       HTTP scrape + Prometheus text format parser
 internal/feature/         counter → rate, timestamp → age, label filters, aggregation and group_by
+internal/attribution/     responsible process from process-exporter
 internal/anomaly/         EWMA, z-score, severity, consecutive points, cooldown
 internal/explain/         catalog (host, nginx, Apache, Docker), explanation and recommendation
 internal/policy/          action authorization (blocks everything in the MVP)
@@ -349,7 +402,8 @@ internal/telemetry/       the service's Prometheus metrics
 internal/api/             HTTP/JSON endpoints
 internal/api/ui/          web UI (HTML/CSS/JS embedded via go:embed)
 deploy/systemd/           sandboxed unit with limits
-deploy/drivers/           driver templates per service (nginx, apache, docker, php-fpm, swoole, cron)
+deploy/drivers/           driver templates per service (nginx, apache, docker, php-fpm, swoole, cron,
+                          redis, memcached, postgresql, mysql)
 deploy/cron/cron-wrap     cron job wrapper (metrics into the textfile collector)
 deploy/swoole/metrics.php Swoole/OpenSwoole metrics for the application's /metrics
 scripts/                  install.sh, uninstall.sh, enable-service.sh, wrap-cron-d.sh, validate-e2e.sh

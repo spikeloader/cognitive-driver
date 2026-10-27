@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/spikeloader/cognitive-driver/internal/attribution"
 	"github.com/spikeloader/cognitive-driver/internal/collector"
 	"github.com/spikeloader/cognitive-driver/internal/driver"
 	"github.com/spikeloader/cognitive-driver/internal/feature"
@@ -34,8 +35,10 @@ type Runner struct {
 	Store    *store.Store
 	Metrics  *telemetry.Metrics
 	Status   *collector.StatusTracker
-	Log      *slog.Logger
-	Now      func() time.Time
+	// Attributor aponta o processo responsável; nil desativa.
+	Attributor *attribution.Attributor
+	Log        *slog.Logger
+	Now        func() time.Time
 }
 
 // Run coleta imediatamente e depois a cada Interval, até ctx terminar.
@@ -88,6 +91,18 @@ func (r *Runner) process(ctx context.Context, c collector.Collector) {
 			r.evaluate(ctx, d, f)
 		}
 	}
+}
+
+// responsible extrai o nome do processo responsável gravado no evento.
+func responsible(ev store.Event) string {
+	var res attribution.Result
+	if len(ev.Attribution) == 0 || json.Unmarshal(ev.Attribution, &res) != nil {
+		return ""
+	}
+	if p := res.Responsible(); p != nil {
+		return p.Group
+	}
+	return ""
 }
 
 // emitCanceler é implementado por drivers capazes de desfazer uma emissão.
@@ -146,6 +161,15 @@ func (r *Runner) evaluate(ctx context.Context, d driver.Driver, f feature.Featur
 		Status:         store.StatusOpen,
 		UpdatedAt:      now,
 	}
+	if r.Attributor != nil && a.Attribute != "" {
+		res, err := r.Attributor.Attribute(ctx, a.Host, a.Attribute)
+		if err != nil {
+			r.Log.Info("attribution_unavailable", "host", a.Host, "metric", a.Metric, "error", err)
+		} else if p := res.Responsible(); p != nil {
+			ev.Attribution, _ = json.Marshal(res)
+		}
+	}
+
 	// Um evento ativo da mesma métrica recebe a ocorrência em vez de duplicar.
 	saved, created, err := r.Store.RecordEvent(ctx, ev)
 	if err != nil {
@@ -161,7 +185,7 @@ func (r *Runner) evaluate(ctx context.Context, d driver.Driver, f feature.Featur
 	ev = saved
 	r.Metrics.Events.WithLabelValues(info.Name, base, ev.Severity).Inc()
 	r.Log.Warn("anomaly_event",
-		"event_id", ev.ID, "created", created, "occurrences", ev.Occurrences,
+		"event_id", ev.ID, "created", created, "occurrences", ev.Occurrences, "responsible", responsible(ev),
 		"driver", ev.Driver, "host", ev.Host, "metric", ev.Metric,
 		"severity", ev.Severity, "score", ev.Score, "zscore", ev.ZScore,
 		"explanation", ev.Explanation, "probable_cause", ev.ProbableCause,

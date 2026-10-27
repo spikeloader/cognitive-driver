@@ -1,0 +1,53 @@
+# Driver do Memcached. Requer o memcached_exporter (prometheus/memcached_exporter)
+# já respondendo em 127.0.0.1:9150 (não há pacote apt).
+drivers:
+  - name: ai-memcached-health
+    version: 0.1.0
+    mode: observe_only
+    targets:
+      - host: local
+        url: http://127.0.0.1:9150/metrics
+    metrics:
+      - name: memcached_up
+        rule: {equals: 1, severity: critical}
+        describe:
+          label: Memcached disponível
+          unit: bool
+          down:
+            cause: Memcached parado ou exporter sem acesso ao endereço configurado.
+            recommendation: Verificar systemctl status memcached e o endereço (-l) e porta (-p) em /etc/memcached.conf.
+      # Conexões perto do limite (-c): novas conexões passam a ser recusadas.
+      - name: memcached_current_connections
+        alias: memcached_connections_ratio
+        divide_by: {name: memcached_max_connections}
+        rule: {above: 0.9, severity: high}
+        describe:
+          label: Conexões do Memcached (proporção do limite)
+          unit: ratio
+          up:
+            cause: As conexões estão perto do limite -c (pico de clientes ou conexões persistentes sem reuso).
+            recommendation: Revisar o pool dos clientes e aumentar -c em /etc/memcached.conf se a carga for legítima.
+      # Itens despejados (LRU): memcached cheio por projeto, então só o desvio importa.
+      - name: memcached_items_evicted_total
+        min_stddev: 1
+        describe:
+          label: Itens despejados do Memcached
+          unit: per_second
+          up:
+            cause: O cache está sem espaço e despejando itens ainda úteis; a taxa de acerto cai e o banco recebe mais carga.
+            recommendation: Comparar com a taxa de misses; avaliar mais memória (-m) ou itens menores.
+      - name: memcached_commands_total
+        alias: memcached_get_misses
+        match: {command: get, status: miss}
+        min_stddev: 5
+        describe:
+          label: Misses de GET no Memcached
+          unit: per_second
+          up:
+            cause: Mais leituras sem acerto que o habitual (cache esvaziado, reinício, deploy que mudou as chaves).
+            recommendation: Correlacionar com reinícios do memcached e deploys; acompanhar a carga no banco de origem.
+      - name: memcached_commands_total
+        describe: {label: Comandos do Memcached, unit: per_second}
+      - name: memcached_current_connections
+        min_stddev: 5
+        describe: {label: Conexões abertas no Memcached, unit: count}
