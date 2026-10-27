@@ -1,34 +1,46 @@
-# cognitive-driver — Micro-IA de observabilidade (MVP)
+# cognitive-driver — observability micro-AI (MVP)
 
 [![CI](https://github.com/spikeloader/cognitive-driver/actions/workflows/ci.yml/badge.svg)](https://github.com/spikeloader/cognitive-driver/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/spikeloader/cognitive-driver)](https://github.com/spikeloader/cognitive-driver/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/spikeloader/cognitive-driver)](https://goreportcard.com/report/github.com/spikeloader/cognitive-driver)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-> **English:** a lightweight Go daemon that watches Prometheus exporters
-> (host, nginx, Apache, Docker, PHP-FPM, Swoole, cron jobs), learns an adaptive
-> baseline per metric, detects anomalies and explains each one with a probable
-> cause and a recommended action. It is strictly `observe_only`: it never runs
-> commands on the host. Documentation is in Portuguese; issues and PRs in
-> English are welcome.
+[Português](README.pt-BR.md) · **English**
 
-Daemon leve em Go que observa métricas de hosts Linux via Prometheus
-`node_exporter`, mantém uma baseline adaptativa (EWMA + desvio-padrão
-exponencial), detecta anomalias, explica a decisão e recomenda uma ação.
-Opera apenas em modo **`observe_only`**: nenhum comando é executado no host.
+A lightweight Go daemon that reads Prometheus exporters (`node_exporter` and
+service exporters), keeps an adaptive baseline per metric (EWMA mean and
+exponential standard deviation), detects anomalies, explains each decision and
+recommends an action. It runs strictly in **`observe_only`** mode: it never
+executes commands on the host.
 
 ```
-node_exporter → Collector → Feature Engine → Anomaly Engine → Explanation Engine → Policy Engine → API / SQLite / logs JSON
+node_exporter → Collector → Feature Engine → Anomaly Engine → Explanation Engine → Policy Engine → API / SQLite / JSON logs
 ```
 
-## Instalação no host
+- **No rules to write for the common case**: each host × metric learns its own
+  baseline; fixed rules exist only for unambiguous states (service down, pool
+  exhausted, cron job failed).
+- **Every event is explained**: what was observed, how far from the baseline,
+  probable cause and a concrete next step.
+- **One binary, no external services**: SQLite for events and baselines, web
+  UI embedded; about 22 MB RSS with the host and Docker drivers.
+- **Drivers in YAML**: host, nginx, Apache, Docker, PHP-FPM, Swoole and cron
+  jobs ship as examples; any Prometheus exporter becomes a driver without code.
 
-Requisitos: Linux com systemd (testado no Ubuntu 26.04), Go 1.27+ para compilar
-e `prometheus-node-exporter`, que o instalador instala via apt quando nada
-responde em `127.0.0.1:9100` (desative com `--without-node-exporter`).
+> **Language note:** the web UI, the explanations and the recommendations
+> generated for events are currently in Brazilian Portuguese. Configuration,
+> metrics and the API are language-neutral. Translations are welcome — see
+> [CONTRIBUTING.md](CONTRIBUTING.md).
 
-A partir de um [release](https://github.com/spikeloader/cognitive-driver/releases)
-(linux amd64/arm64, sem precisar de Go):
+## Installing on a host
+
+Requirements: Linux with systemd (tested on Ubuntu 26.04), Go 1.27+ to build
+from source, and `prometheus-node-exporter`, which the installer installs via
+apt when nothing answers on `127.0.0.1:9100` (disable with
+`--without-node-exporter`).
+
+From a [release](https://github.com/spikeloader/cognitive-driver/releases)
+(linux amd64/arm64, no Go required):
 
 ```bash
 curl -LO https://github.com/spikeloader/cognitive-driver/releases/download/v0.1.0/cognitive-driver-0.1.0-linux-amd64.tar.gz
@@ -36,236 +48,236 @@ tar -xzf cognitive-driver-0.1.0-linux-amd64.tar.gz && cd cognitive-driver-0.1.0-
 sudo scripts/install.sh
 ```
 
-Ou a partir do código:
+From source:
 
 ```bash
 git clone https://github.com/spikeloader/cognitive-driver.git && cd cognitive-driver
-make build                 # como seu usuário
-sudo scripts/install.sh    # ou: sudo make install
+make build                 # as your user
+sudo scripts/install.sh    # or: sudo make install
 ```
 
-O instalador:
+The installer sets up:
 
-| Item | Destino |
+| Item | Location |
 |---|---|
-| Binário | `/usr/local/bin/cognitive-driver` |
-| Configuração | `/etc/cognitive-driver/config.yaml`, gerada de `configs/config.yaml` com o hostname, `data_dir` em `/var/lib/cognitive-driver` e API em `127.0.0.1:8088` |
-| Token da API | `/etc/cognitive-driver/env` (`MICRO_AI_TOKEN` aleatório, root 0600) |
-| Unit systemd | `/etc/systemd/system/cognitive-driver.service`, habilitada e iniciada |
-| Estado | `/var/lib/cognitive-driver` (SQLite com eventos e baselines) |
+| Binary | `/usr/local/bin/cognitive-driver` |
+| Configuration | `/etc/cognitive-driver/config.yaml`, generated from `configs/config.yaml` with the hostname, `data_dir` at `/var/lib/cognitive-driver` and the API on `127.0.0.1:8088` |
+| API token | `/etc/cognitive-driver/env` (random `MICRO_AI_TOKEN`, root 0600) |
+| systemd unit | `/etc/systemd/system/cognitive-driver.service`, enabled and started |
+| State | `/var/lib/cognitive-driver` (SQLite with events and baselines) |
 
-Ao reinstalar (atualização), a configuração, o token e o estado são mantidos;
-apenas o binário e a unit são substituídos e o serviço é reiniciado. Opções:
-`--listen :8088` expõe o painel na rede; `--no-start` só copia os arquivos.
-Para ver o que seria instalado sem root: `DESTDIR=/tmp/stage scripts/install.sh`.
+Reinstalling (upgrading) keeps the configuration, token and state; only the
+binary and the unit are replaced and the service is restarted. Options:
+`--listen :8088` exposes the UI on the network; `--no-start` only copies the
+files. To preview the install without root: `DESTDIR=/tmp/stage scripts/install.sh`.
 
 ```bash
-sudo cat /etc/cognitive-driver/env             # token para o painel e a API
-journalctl -u cognitive-driver -f              # logs JSON
-sudo systemctl restart cognitive-driver        # após editar a configuração
-cognitive-driver -check -config /etc/cognitive-driver/config.yaml   # valida a configuração
-sudo scripts/uninstall.sh [--purge]            # remove (--purge apaga config, token e eventos)
+sudo cat /etc/cognitive-driver/env             # token for the UI and the API
+journalctl -u cognitive-driver -f              # JSON logs
+sudo systemctl restart cognitive-driver        # after editing the configuration
+cognitive-driver -check -config /etc/cognitive-driver/config.yaml   # validate the configuration
+sudo scripts/uninstall.sh [--purge]            # remove (--purge deletes config, token and events)
 ```
 
-A unit roda com usuário dinâmico sem privilégios, sistema de arquivos
-somente leitura, filtro de syscalls, sem capabilities e com limites de
-25% de CPU e 128 MiB de memória (`systemd-analyze security` 1,4 — OK).
-A configuração é validada (`ExecStartPre=... -check`) antes de cada início.
+The unit runs as an unprivileged dynamic user with a read-only filesystem,
+a syscall filter, no capabilities and limits of 25% CPU and 128 MiB of memory
+(`systemd-analyze security` 1.4 — OK). The configuration is validated
+(`ExecStartPre=... -check`) before every start.
 
-### Validação ponta a ponta
+### End-to-end validation
 
 ```bash
-scripts/validate-e2e.sh            # contra o serviço instalado (pede sudo para ler o token e reiniciar)
-scripts/validate-e2e.sh --local    # compila e roda o binário numa porta separada, sem instalar
+scripts/validate-e2e.sh            # against the installed service (asks for sudo to read the token and restart)
+scripts/validate-e2e.sh --local    # builds and runs the binary on a separate port, without installing
 ```
 
-Leva ~6–10 min: espera o aprendizado da baseline, gera carga de CPU e disco
-(`stress-ng`, ou laços de shell e `dd`), confere o evento, a API, as métricas,
-os logs, o modo seguro e a persistência após restart.
+Takes ~6–10 min: waits for the baseline to be learned, generates CPU and disk
+load (`stress-ng`, or shell loops and `dd`), then checks the event, the API,
+the metrics, the logs, the safe mode and persistence across restarts.
 
-### Desenvolvimento
+### Development
 
 ```bash
-make test        # testes unitários com -race
-make run         # build + execução local com configs/config.yaml (data em ./data)
-make dist        # pacotes de release em dist/ (linux amd64/arm64 + SHA256SUMS)
+make test        # unit tests with -race
+make run         # build + run locally with configs/config.yaml (state in ./data)
+make dist        # release packages in dist/ (linux amd64/arm64 + SHA256SUMS)
 ```
 
-## Serviços monitorados (nginx, Apache, Docker, PHP, cron)
+## Monitored services (nginx, Apache, Docker, PHP, cron)
 
-Além do host (CPU, memória, disco, rede via node_exporter), cada serviço tem
-um driver próprio que lê o exporter do serviço. Ative com um comando; o
-script configura o exporter, valida e instala o driver em
-`/etc/cognitive-driver/drivers.d/` (sem editar a configuração principal):
+Besides the host (CPU, memory, disk, network via node_exporter), each service
+has its own driver that reads the service's exporter. One command enables it:
+the script configures the exporter, validates and installs the driver in
+`/etc/cognitive-driver/drivers.d/` (without touching the main configuration):
 
 ```bash
-sudo scripts/enable-service.sh nginx     # stub_status em 127.0.0.1:8090 + prometheus-nginx-exporter
+sudo scripts/enable-service.sh nginx     # stub_status on 127.0.0.1:8090 + prometheus-nginx-exporter
 sudo scripts/enable-service.sh apache    # mod_status + prometheus-apache-exporter
-sudo scripts/enable-service.sh docker    # metrics-addr no daemon.json (reinicia o dockerd; pede confirmação)
-sudo scripts/enable-service.sh php-fpm   # exige o php-fpm_exporter em 127.0.0.1:9253
+sudo scripts/enable-service.sh docker    # metrics-addr in daemon.json (restarts dockerd; asks first)
+sudo scripts/enable-service.sh php-fpm   # requires php-fpm_exporter on 127.0.0.1:9253
 sudo scripts/enable-service.sh swoole --metrics-url http://127.0.0.1:9501/metrics
-sudo scripts/enable-service.sh cron      # driver que lê as métricas do cron-wrap via node_exporter
-sudo scripts/enable-service.sh nginx --disable   # remove o driver
+sudo scripts/enable-service.sh cron      # driver reading cron-wrap metrics through node_exporter
+sudo scripts/enable-service.sh nginx --disable   # remove the driver
 ```
 
-| Driver | Detecção | Tipo |
+| Driver | Detection | Type |
 |---|---|---|
-| `ai-nginx-health` | nginx fora do ar (`nginx_up ≠ 1`) | regra · critical |
-| | conexões descartadas (aceitas − tratadas > 0): limite de `worker_connections`/descritores | regra · high |
-| | requisições/s e conexões ativas fora do padrão | estatística |
-| `ai-apache-health` | Apache fora do ar (`apache_up ≠ 1`) | regra · critical |
-| | workers ocupados > 90% do scoreboard (saturação) | regra · high |
-| | requisições/s, workers ocupados e tempo médio por requisição fora do padrão | estatística |
-| `ai-docker-health` | falhas de HEALTHCHECK | regra · high |
-| | inícios de container > ~3/min sustentados (crash loop) | regra · high |
-| | containers em execução fora do padrão (queda = containers parando) | estatística |
-| `ai-php-fpm-health` | pool fora do ar (`phpfpm_up ≠ 1`) | regra · critical |
-| (por pool) | `max_children` atingido, fila no listen, processos ocupados > 90% | regra · high |
-| | requisições lentas (slowlog) | regra · medium |
-| | requisições/s fora do padrão | estatística |
-| `ai-swoole-health` | workers ocupados > 90% | regra · high |
-| (por servidor) | conexões, requisições/s, corrotinas e fila de tasks fora do padrão | estatística |
-| `ai-cron-health` | última execução com código ≠ 0 | regra · high |
-| (por job) | job sem iniciar há mais de 2 intervalos (cron parado, linha removida) | regra · high |
-| | execução em andamento há mais de 1 intervalo (travado/sobreposição) | regra · high |
-| | duração > 80% do intervalo | regra · medium |
+| `ai-nginx-health` | nginx down (`nginx_up ≠ 1`) | rule · critical |
+| | dropped connections (accepted − handled > 0): `worker_connections`/file descriptor limit | rule · high |
+| | requests/s and active connections off baseline | statistical |
+| `ai-apache-health` | Apache down (`apache_up ≠ 1`) | rule · critical |
+| | busy workers > 90% of the scoreboard (saturation) | rule · high |
+| | requests/s, busy workers and mean request time off baseline | statistical |
+| `ai-docker-health` | HEALTHCHECK failures | rule · high |
+| | sustained container starts > ~3/min (crash loop) | rule · high |
+| | running containers off baseline (drop = containers stopping) | statistical |
+| `ai-php-fpm-health` | pool down (`phpfpm_up ≠ 1`) | rule · critical |
+| (per pool) | `max_children` reached, listen queue, busy processes > 90% | rule · high |
+| | slow requests (slowlog) | rule · medium |
+| | requests/s off baseline | statistical |
+| `ai-swoole-health` | busy workers > 90% | rule · high |
+| (per server) | connections, requests/s, coroutines and task queue off baseline | statistical |
+| `ai-cron-health` | last run exited ≠ 0 | rule · high |
+| (per job) | job not started for more than 2 intervals (cron stopped, line removed) | rule · high |
+| | current run going for more than 1 interval (stuck/overlapping) | rule · high |
+| | duration > 80% of the interval | rule · medium |
 
-**Regras** disparam sem baseline (após `consecutive_points` coletas) e
-servem para estados inequívocos; a **detecção estatística** aprende o padrão
-de cada métrica. Todo evento traz causa provável e recomendação específicas
-do serviço.
+**Rules** fire without a baseline (after `consecutive_points` scrapes) and
+cover unambiguous states; **statistical detection** learns each metric's
+pattern. Every event carries a service-specific probable cause and
+recommendation.
 
 ### PHP
 
-| Cenário | Cobertura |
+| Scenario | Coverage |
 |---|---|
-| PHP-FPM | `ai-php-fpm-health`, via [php-fpm_exporter](https://github.com/hipages/php-fpm_exporter) lendo o `pm.status_path` de cada pool |
-| mod_php | `ai-apache-health` (workers, latência e saturação do Apache) |
-| Swoole/OpenSwoole | `ai-swoole-health`: a aplicação expõe `$server->stats()` em `/metrics` com [deploy/swoole/metrics.php](deploy/swoole/metrics.php) (exemplo no arquivo) |
-| PHP CLI | pelos jobs de cron (abaixo) |
+| PHP-FPM | `ai-php-fpm-health`, via [php-fpm_exporter](https://github.com/hipages/php-fpm_exporter) reading each pool's `pm.status_path` |
+| mod_php | `ai-apache-health` (Apache workers, latency and saturation) |
+| Swoole/OpenSwoole | `ai-swoole-health`: the application exposes `$server->stats()` on `/metrics` with [deploy/swoole/metrics.php](deploy/swoole/metrics.php) (example in the file) |
+| PHP CLI | through the cron jobs (below) |
 
-### Jobs de cron
+### Cron jobs
 
-Cada linha de `/etc/cron.d` passa a rodar pelo [cron-wrap](deploy/cron/cron-wrap),
-que grava por job (início, fim, código de saída, duração e intervalo esperado)
-no textfile collector do node_exporter. O driver `ai-cron-health` lê essas
-métricas pelos alvos de `collector.targets` e abre **um evento por job**.
+Each line in `/etc/cron.d` runs through [cron-wrap](deploy/cron/cron-wrap),
+which records per job (start, end, exit code, duration and expected interval)
+into node_exporter's textfile collector. The `ai-cron-health` driver reads
+these metrics from the `collector.targets` hosts and opens **one event per job**.
 
 ```bash
-sudo scripts/wrap-cron-d.sh            # simulação: mostra o diff, não grava nada
-sudo scripts/wrap-cron-d.sh --apply    # instala o cron-wrap, faz backup em /var/backups e reescreve
-sudo scripts/wrap-cron-d.sh --unwrap --apply   # desfaz
+sudo scripts/wrap-cron-d.sh            # dry run: shows the diff, writes nothing
+sudo scripts/wrap-cron-d.sh --apply    # installs cron-wrap, backs up to /var/backups and rewrites
+sudo scripts/wrap-cron-d.sh --unwrap --apply   # revert
 ```
 
-- O job sempre roda e mantém o código de saída. Se o wrapper não conseguir
-  gravar as métricas, só avisa em stderr.
-- Nome do job: `<arquivo>.<script>` (ex.: `relatorios.backup`). O intervalo
-  (`-i`) é deduzido de agendamentos regulares (`*/5`, `0 3 * * *`, `@hourly`,
-  dias da semana). Com agendamentos irregulares só existe o alerta de falha.
-- Comandos com `&&`, `|`, `;` e afins rodam via `$SHELL -c '...'` para que o
-  wrapper meça a linha inteira. Linhas com `%` e `@reboot` ficam como estão.
-- Executar de novo é seguro, porque linhas já envolvidas são mantidas. Jobs de
-  usuários que não são root recebem ACL de escrita no diretório do textfile
-  collector (`/var/lib/prometheus/node-exporter`, ou `CRON_WRAP_DIR`).
-- Ao remover um job de propósito, apague o `cron_<job>.prom`. Sem isso, o
-  alerta de atraso dispara.
-- Arquivos instalados por pacotes (dpkg/rpm, como `anacron`, `e2scrub_all` e
-  `php`) ficam de fora por padrão: editá-los gera conflito de conffile nas
-  atualizações. Use `--include-packaged` para envolvê-los mesmo assim.
+- The job always runs and keeps its exit code. If the wrapper cannot write
+  its metrics, it only warns on stderr.
+- Job name: `<file>.<script>` (e.g. `reports.backup`). The interval (`-i`) is
+  derived from regular schedules (`*/5`, `0 3 * * *`, `@hourly`, weekdays).
+  Irregular schedules only get the failure alert.
+- Commands with `&&`, `|`, `;` and friends run through `$SHELL -c '...'` so the
+  wrapper measures the whole line. Lines with `%` and `@reboot` are left as is.
+- Re-running is safe: already wrapped lines are kept. Jobs of non-root users
+  get an ACL to write into the textfile collector directory
+  (`/var/lib/prometheus/node-exporter`, or `CRON_WRAP_DIR`).
+- When removing a job on purpose, delete its `cron_<job>.prom`; otherwise the
+  overdue alert fires.
+- Files owned by packages (dpkg/rpm, such as `anacron`, `e2scrub_all` and
+  `php`) are skipped by default, since editing them causes conffile conflicts
+  on upgrades. Use `--include-packaged` to wrap them anyway.
 
-### Outros serviços (PostgreSQL, Redis, …) sem mudar código
+### Other services (PostgreSQL, Redis, …) without code
 
-Qualquer exporter Prometheus vira um driver com um arquivo em `drivers.d/`.
-Os modelos em [deploy/drivers/](deploy/drivers/) mostram todos os recursos:
+Any Prometheus exporter becomes a driver with a file in `drivers.d/`. The
+templates in [deploy/drivers/](deploy/drivers/) show every feature:
 
 ```yaml
 drivers:
   - name: ai-redis-health
-    targets: [{host: meu-host, url: "http://127.0.0.1:9121/metrics"}]
+    targets: [{host: my-host, url: "http://127.0.0.1:9121/metrics"}]
     metrics:
       - name: redis_up
         rule: {equals: 1, severity: critical}
         describe:
-          label: Disponibilidade do Redis
+          label: Redis availability
           unit: bool
           down:
-            cause: Redis parado ou exporter sem acesso.
-            recommendation: Verificar systemctl status redis-server e o log do Redis.
-      - name: redis_evicted_keys_total          # contador → taxa por segundo
-        describe: {label: Chaves despejadas do Redis, unit: per_second}
+            cause: Redis stopped or the exporter has no access.
+            recommendation: Check systemctl status redis-server and the Redis log.
+      - name: redis_evicted_keys_total          # counter → rate per second
+        describe: {label: Redis evicted keys, unit: per_second}
       - name: redis_memory_used_bytes
         alias: redis_memory_ratio
         divide_by: {name: redis_memory_max_bytes}
         rule: {above: 0.9}
 ```
 
-Campos de métrica: `match`/`exclude` (regex de labels), `type`
-(counter/gauge/timestamp — timestamp vira idade em segundos), `alias`,
-`group_by` (uma feature e um evento por valor dos labels, ex.: `[job]`,
-`[pool]`, em vez de somar as séries), `subtract`/`divide_by` (derivadas), `rule`
-(`above`/`below`/`equals` + `severity`), `min_stddev` (piso absoluto do
-desvio, útil em contagens pequenas) e `describe` (`label`, `unit` —
+Metric fields: `match`/`exclude` (label regexes), `type`
+(counter/gauge/timestamp — timestamp becomes an age in seconds), `alias`,
+`group_by` (one feature and one event per label value, e.g. `[job]`, `[pool]`,
+instead of summing the series), `subtract`/`divide_by` (derived metrics),
+`rule` (`above`/`below`/`equals` + `severity`), `min_stddev` (absolute floor
+for the deviation, useful for small counts) and `describe` (`label`, `unit` —
 cores, bytes, bytes_per_second, ratio, per_second, count, milliseconds,
-seconds, bool — e causa/recomendação para `up`/`down`). Valide com
+seconds, bool — plus cause/recommendation for `up`/`down`). Validate with
 `cognitive-driver -check -config /etc/cognitive-driver/config.yaml`.
 
-## Painel web
+## Web UI
 
-Acesse **http://127.0.0.1:8088/** (redireciona para `/ui/`). O painel vem
-embutido no binário, não carrega nada de origens externas e consome apenas
-`/health` e `/events` deste serviço. Ele mostra:
+Open **http://127.0.0.1:8088/** (redirects to `/ui/`). The UI is embedded in
+the binary, loads nothing from external origins and only uses this service's
+`/health` and `/events`. It shows:
 
-- estado do serviço, hosts coletados e drivers (habilitados/desabilitados);
-- contadores de eventos abertos, high/critical, reconhecidos, resolvidos e falsos positivos;
-- lista de eventos com filtros por status, severidade, driver e host;
-- detalhe de cada evento: **recomendação**, o que foi observado, causa provável,
-  intensidade do desvio (faixas low → critical) e evidências por janela (1m/5m/15m);
-- botões para **reconhecer**, **resolver**, marcar **falso positivo** ou reabrir,
-  com campo de feedback (`PATCH /events/{id}`).
+- service state, scraped hosts and drivers (enabled/disabled);
+- counters for open, high/critical, acknowledged, resolved and false-positive events;
+- a paginated event list with filters by status, severity, driver and host;
+- each event's detail: **recommendation**, what was observed, probable cause,
+  deviation intensity (low → critical bands) and evidence per window (1m/5m/15m);
+- buttons to **acknowledge**, **resolve**, mark as **false positive** or
+  reopen, with a feedback field (`PATCH /events/{id}`).
 
-Na primeira visita, clique em **Token** e informe o valor de `MICRO_AI_TOKEN`
-(fica no `sessionStorage`, ou no `localStorage` se marcar "Lembrar").
-A página atualiza a cada 15 s enquanto estiver visível. Cada evento tem um
-link direto (`/ui/#event=<id>`) para colar em tickets ou no chat do time.
+On the first visit, click **Token** and enter the value of `MICRO_AI_TOKEN`
+(kept in `sessionStorage`, or `localStorage` if "Remember" is checked). The
+page refreshes every 15 s while visible. Each event has a direct link
+(`/ui/#event=<id>`) to paste into tickets or team chat.
 
-## Como a detecção funciona
+## How detection works
 
-| Etapa | Regra |
+| Stage | Rule |
 |---|---|
-| Feature | Contadores (`*_total`) viram taxa por segundo; séries filtradas por label são somadas. CPU = núcleos ocupados; disco = fração do tempo com I/O ativo; rede = bytes/s; memória = bytes disponíveis. |
-| Baseline | EWMA de média e variância por host × métrica nas janelas 1m, 5m e 15m (`alpha = 1 - e^(-intervalo/janela)`). |
-| Aprendizado | Nenhuma detecção antes de `warmup_points` observações (padrão 20 ≈ 5 min). |
-| Z-score | `(valor - média) / desvio` contra a baseline **anterior** ao ponto, na `decision_window` (padrão 5m). As demais janelas aparecem como evidência. O desvio tem um piso de `min_stddev_ratio × |média|` para métricas quase constantes. |
-| Anomalia | `|z| ≥ anomaly_threshold` (3,0), em qualquer direção (pico ou queda). |
-| Severidade | low 3–4σ · medium 4–6σ · high 6–10σ · critical ≥ 10σ. Score = `1 - e^(-|z|/2)`. |
-| Congelamento | Pontos anômalos não entram na baseline até `baseline_freeze_points` (10 ≈ 2,5 min) seguidos; assim um pico não infla o desvio-padrão e mascara a própria detecção. Se a anomalia persistir além disso, o novo patamar passa a ser aprendido. |
-| Evento | Emitido após `consecutive_points` (3) pontos anômalos seguidos, com `cooldown` (5m) por host × métrica. |
-| Ação | A recomendação passa pela política; em `observe_only` é sempre bloqueada (`cognitive_driver_actions_blocked_total`). |
+| Feature | Counters (`*_total`) become a per-second rate; label-filtered series are summed (or kept apart per group with `group_by`). CPU = busy cores; disk = fraction of time with active I/O; network = bytes/s; memory = available bytes. |
+| Baseline | EWMA of mean and variance per host × metric over 1m, 5m and 15m windows (`alpha = 1 - e^(-interval/window)`). |
+| Warm-up | No detection before `warmup_points` observations (default 20 ≈ 5 min). |
+| Z-score | `(value - mean) / stddev` against the baseline **before** the point, on the `decision_window` (default 5m). The other windows are shown as evidence. The deviation has a floor of `min_stddev_ratio × |mean|` for near-constant metrics. |
+| Anomaly | `|z| ≥ anomaly_threshold` (3.0), in either direction (spike or drop). |
+| Severity | low 3–4σ · medium 4–6σ · high 6–10σ · critical ≥ 10σ. Score = `1 - e^(-|z|/2)`. |
+| Freeze | Anomalous points stay out of the baseline until `baseline_freeze_points` (10 ≈ 2.5 min) in a row, so a spike does not inflate the deviation and mask its own detection. If the anomaly persists beyond that, the new level is learned. |
+| Event | Emitted after `consecutive_points` (3) anomalous points in a row, with a `cooldown` (5m) per host × metric. There is at most one active (open or acknowledged) event per driver × host × metric: re-emissions become occurrences of it. |
+| Action | The recommendation goes through the policy; in `observe_only` it is always blocked (`cognitive_driver_actions_blocked_total`). |
 
-Baselines são salvas no SQLite a cada `baseline_save_interval` e no shutdown,
-e restauradas no início, de modo que um restart não exige novo aprendizado.
+Baselines are saved to SQLite every `baseline_save_interval` and on shutdown,
+and restored at startup, so a restart does not require learning again.
 
 ## API
 
-`/health` e `/metrics` são públicos (health check e scrape do Prometheus).
-Os demais exigem `Authorization: Bearer $MICRO_AI_TOKEN` quando a variável
-está definida (sem ela, o serviço avisa no log e roda sem autenticação).
+`/health` and `/metrics` are public (health check and Prometheus scrape).
+The others require `Authorization: Bearer $MICRO_AI_TOKEN` when the variable
+is set (without it, the service logs a warning and runs without authentication).
 
-| Método | Endpoint | Função |
+| Method | Endpoint | Purpose |
 |---|---|---|
-| GET | `/health` | Status, versão, drivers (versão do contrato, modo, habilitado) e estado da coleta |
-| GET | `/metrics` | Métricas internas no formato Prometheus |
-| POST | `/predict` | Avalia um valor contra a baseline atual (sem alterar a baseline nem gerar evento) |
-| GET | `/events` | Eventos recentes. Filtros: `host`, `driver`, `metric`, `severity`, `status`, `since` (RFC3339), `limit` (1–500) |
-| GET | `/events/{id}` | Detalhe com evidências por janela, causa provável e recomendação |
-| PATCH | `/events/{id}` | Feedback do SRE: `status` (`open`, `acknowledged`, `resolved`, `false_positive`) e `feedback`. Reabrir retorna 409 se a mesma métrica já tem outro evento ativo |
+| GET | `/health` | Status, version, drivers (contract version, mode, enabled) and scrape state |
+| GET | `/metrics` | Internal metrics in Prometheus format |
+| POST | `/predict` | Evaluates a value against the current baseline (without changing it or creating an event) |
+| GET | `/events` | Recent events. Filters: `host`, `driver`, `metric`, `severity`, `status`, `since` (RFC3339), `limit` (1–500) |
+| GET | `/events/{id}` | Detail with evidence per window, probable cause and recommendation |
+| PATCH | `/events/{id}` | SRE feedback: `status` (`open`, `acknowledged`, `resolved`, `false_positive`) and `feedback`. Reopening returns 409 if the same metric already has another active event |
 
 ```bash
 TOKEN="Authorization: Bearer $MICRO_AI_TOKEN"
 
 curl -s localhost:8088/health | jq
 
-# value na unidade da feature: taxa/s para contadores (0.41 = disco 41% ocupado)
+# value in the feature's unit: rate/s for counters (0.41 = disk 41% busy)
 curl -s -X POST localhost:8088/predict -H "$TOKEN" -H 'Content-Type: application/json' \
   -d '{"driver":"ai-disk-health","metric":"node_disk_io_time_seconds_total","value":0.41}' | jq
 
@@ -273,12 +285,12 @@ curl -s "localhost:8088/events?severity=high&limit=20" -H "$TOKEN" | jq
 curl -s localhost:8088/events/<id> -H "$TOKEN" | jq
 
 curl -s -X PATCH localhost:8088/events/<id> -H "$TOKEN" -H 'Content-Type: application/json' \
-  -d '{"status":"false_positive","feedback":"backup noturno agendado"}' | jq
+  -d '{"status":"false_positive","feedback":"scheduled nightly backup"}' | jq
 
 curl -s localhost:8088/metrics | grep ^cognitive_driver_
 ```
 
-Exemplo de resposta de `/predict` com anomalia:
+Example `/predict` response with an anomaly (texts are generated in Portuguese):
 
 ```json
 {
@@ -294,78 +306,78 @@ Exemplo de resposta de `/predict` com anomalia:
 }
 ```
 
-Se ainda não há baseline para o host/métrica, `/predict` retorna `409`.
-Durante o aprendizado, retorna `200` com `"learning": true` e `"anomaly": false`.
+If there is no baseline yet for the host/metric, `/predict` returns `409`.
+During warm-up it returns `200` with `"learning": true` and `"anomaly": false`.
 
-## Métricas internas
+## Internal metrics
 
-| Métrica | Descrição |
+| Metric | Description |
 |---|---|
-| `cognitive_driver_events_total{driver,metric,severity}` | Eventos gerados |
-| `cognitive_driver_false_positives_total{driver,metric}` | Falsos positivos reportados via `PATCH /events/{id}` |
-| `cognitive_driver_inference_duration_seconds{driver}` | Latência de inferência |
-| `cognitive_driver_predictions_total`, `cognitive_driver_anomalous_points_total` | Volume de previsões e pontos acima do limiar |
-| `cognitive_driver_scrapes_total{host,result}`, `cognitive_driver_scrape_duration_seconds` | Saúde da coleta |
-| `cognitive_driver_actions_blocked_total{driver}` | Ações bloqueadas pela política |
-| `cognitive_driver_driver_info`, `cognitive_driver_store_errors_total` | Drivers carregados e falhas de persistência |
-| `go_memstats_*`, `process_*` | Uso de memória e CPU do próprio serviço |
+| `cognitive_driver_events_total{driver,metric,severity}` | Events emitted |
+| `cognitive_driver_false_positives_total{driver,metric}` | False positives reported via `PATCH /events/{id}` |
+| `cognitive_driver_inference_duration_seconds{driver}` | Inference latency |
+| `cognitive_driver_predictions_total`, `cognitive_driver_anomalous_points_total` | Prediction volume and points above the threshold |
+| `cognitive_driver_scrapes_total{host,result}`, `cognitive_driver_scrape_duration_seconds` | Scrape health |
+| `cognitive_driver_actions_blocked_total{driver}` | Actions blocked by the policy |
+| `cognitive_driver_driver_info`, `cognitive_driver_store_errors_total` | Loaded drivers and persistence failures |
+| `go_memstats_*`, `process_*` | The service's own memory and CPU usage |
 
-Todas as previsões (`prediction`), eventos (`anomaly_event`), ações bloqueadas
-(`action_blocked`) e feedbacks (`event_feedback`) são registrados em JSON no stdout.
+Every prediction (`prediction`), event (`anomaly_event`), blocked action
+(`action_blocked`) and feedback (`event_feedback`) is logged as JSON on stdout.
 
-## Configuração
+## Configuration
 
-Veja [configs/config.yaml](configs/config.yaml), que documenta cada campo.
-Cada item de `drivers` é uma micro-IA independente, com métricas e limiares
-próprios, e pode ser desativado com `enabled: false`. O único modo aceito no
-MVP é `observe_only`; qualquer outro é rejeitado na validação.
+See [configs/config.yaml](configs/config.yaml), which documents every field.
+Each item in `drivers` is an independent micro-AI with its own metrics and
+thresholds, and can be disabled with `enabled: false`. The only mode accepted
+in the MVP is `observe_only`; anything else is rejected at validation.
 
-## Estrutura
+## Layout
 
 ```
-cmd/cognitive-driver/     main: configuração, wiring, HTTP server, shutdown
-internal/config/          YAML + defaults + validação
-internal/collector/       scrape HTTP + parser do formato de texto Prometheus
-internal/feature/         contador → taxa, filtros de label, agregação
-internal/anomaly/         EWMA, z-score, severidade, consecutivos, cooldown
-internal/explain/         catálogo (host, nginx, Apache, Docker), explicação e recomendação
-internal/policy/          autorização de ações (bloqueia tudo no MVP)
-internal/driver/          contrato Driver v1 + implementação estatística
-internal/runner/          loop observe → detect → explain → recommend
-internal/store/           SQLite (eventos e baselines)
-internal/telemetry/       métricas Prometheus do serviço
-internal/api/             endpoints HTTP/JSON
-internal/api/ui/          painel web (HTML/CSS/JS embutidos via go:embed)
-deploy/systemd/           unit com sandbox e limites
-deploy/drivers/           modelos de driver por serviço (nginx, apache, docker, php-fpm, swoole, cron)
-deploy/cron/cron-wrap     wrapper dos jobs de cron (métricas no textfile collector)
-deploy/swoole/metrics.php métricas do Swoole/OpenSwoole para o /metrics da aplicação
+cmd/cognitive-driver/     main: configuration, wiring, HTTP server, shutdown
+internal/config/          YAML + defaults + validation
+internal/collector/       HTTP scrape + Prometheus text format parser
+internal/feature/         counter → rate, timestamp → age, label filters, aggregation and group_by
+internal/anomaly/         EWMA, z-score, severity, consecutive points, cooldown
+internal/explain/         catalog (host, nginx, Apache, Docker), explanation and recommendation
+internal/policy/          action authorization (blocks everything in the MVP)
+internal/driver/          Driver v1 contract + statistical implementation
+internal/runner/          observe → detect → explain → recommend loop
+internal/store/           SQLite (events and baselines)
+internal/telemetry/       the service's Prometheus metrics
+internal/api/             HTTP/JSON endpoints
+internal/api/ui/          web UI (HTML/CSS/JS embedded via go:embed)
+deploy/systemd/           sandboxed unit with limits
+deploy/drivers/           driver templates per service (nginx, apache, docker, php-fpm, swoole, cron)
+deploy/cron/cron-wrap     cron job wrapper (metrics into the textfile collector)
+deploy/swoole/metrics.php Swoole/OpenSwoole metrics for the application's /metrics
 scripts/                  install.sh, uninstall.sh, enable-service.sh, wrap-cron-d.sh, validate-e2e.sh
 ```
 
-## Contrato do driver (v1)
+## Driver contract (v1)
 
 ```go
 type Driver interface {
-    Info() Info                                       // nome, versão, contrato, modo
+    Info() Info                                       // name, version, contract, mode
     Observe(collector.Snapshot) []feature.Feature     // observe(event) -> features
-    Predict(feature.Feature) Anomaly                  // predict(features) -> anomaly (aprende online)
-    Evaluate(feature.Feature) (Anomaly, error)        // predict sem efeito colateral (/predict)
+    Predict(feature.Feature) Anomaly                  // predict(features) -> anomaly (learns online)
+    Evaluate(feature.Feature) (Anomaly, error)        // side-effect-free predict (/predict)
     Explain(Anomaly) explain.Explanation              // explain(anomaly) -> explanation
     Recommend(Anomaly) policy.Action                  // recommend(anomaly) -> action
-    Act(context.Context, policy.Action) error         // act(action): bloqueado no MVP
+    Act(context.Context, policy.Action) error         // act(action): blocked in the MVP
 }
 ```
 
-Uma nova implementação (TinyML, modelo local) só precisa satisfazer essa
-interface. O runner, a API e o armazenamento não mudam.
+A new implementation (TinyML, a local model) only needs to satisfy this
+interface. The runner, the API and the storage stay the same.
 
-## Contribuindo
+## Contributing
 
-Veja [CONTRIBUTING.md](CONTRIBUTING.md). Vulnerabilidades: siga o
-[SECURITY.md](SECURITY.md) (reporte privado, não por issue). Mudanças por
-versão estão no [CHANGELOG.md](CHANGELOG.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). For vulnerabilities, follow
+[SECURITY.md](SECURITY.md) (private report, not an issue). Changes per version
+are in [CHANGELOG.md](CHANGELOG.md).
 
-## Licença
+## License
 
 [Apache License 2.0](LICENSE). Copyright 2026 The cognitive-driver authors.

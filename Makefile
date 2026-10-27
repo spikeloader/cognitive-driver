@@ -48,7 +48,7 @@ dist:
 		mkdir -p $$dir/bin; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" \
 			-o $$dir/bin/cognitive-driver ./cmd/cognitive-driver; \
-		cp -r configs deploy scripts Makefile README.md LICENSE NOTICE CHANGELOG.md $$dir/; \
+		cp -r configs deploy scripts Makefile README.md README.pt-BR.md LICENSE NOTICE CHANGELOG.md $$dir/; \
 		tar -C dist -czf dist/$$name.tar.gz $$name; rm -rf $$dir; \
 	done
 	cd dist && sha256sum *.tar.gz > SHA256SUMS
