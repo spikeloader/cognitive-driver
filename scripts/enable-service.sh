@@ -11,8 +11,9 @@
 #   --metrics-url URL   (swoole) URL do /metrics da aplicação; padrão http://127.0.0.1:9501/metrics
 #   --listen ADDR       (processes) endereço do process-exporter; padrão 127.0.0.1:9256
 #                       (use 0.0.0.0:9256 quando o cognitive-driver central coleta este host)
-#   --with-io           (processes) concede CAP_SYS_PTRACE ao exporter para ler o I/O
-#                       de disco de processos de outros usuários (eventos de disco)
+#   --with-io           (processes) concede CAP_SYS_PTRACE e CAP_DAC_READ_SEARCH ao
+#                       exporter (com sandbox) para ler o I/O de disco de processos de
+#                       outros usuários (eventos de disco)
 #   --redis-addr URL    (redis) padrão redis://127.0.0.1:6379; com requirepass, passe a
 #                       senha em REDIS_PASSWORD (sudo REDIS_PASSWORD=... scripts/...)
 #   --yes               (docker) não pede confirmação para reiniciar o dockerd
@@ -249,12 +250,25 @@ setup_cron() {
 # Um grupo por nome de comando (comm): "php-fpm8.3", "postgres", "stress-ng".
 PROCESS_CONFIG=/etc/prometheus/process-exporter-cognitive-driver.yml
 setup_processes() {
-  # /proc/<pid>/io de outros usuários exige ptrace; sem isso o I/O vem zerado
-  # e eventos de disco ficam sem responsável. Opt-in: amplia o que o exporter lê.
+  # /proc/<pid>/io é 0400 do dono do processo: ler o de outros usuários exige
+  # CAP_DAC_READ_SEARCH (permissão do arquivo) e CAP_SYS_PTRACE (checagem de
+  # ptrace do kernel). Sem isso o I/O vem zerado e eventos de disco ficam sem
+  # responsável. Opt-in, e com sandbox: a 1ª capability permite ler qualquer
+  # arquivo, então o exporter só enxerga o necessário (/proc).
   if (( WITH_IO )); then
     install -d -m 0755 "${PROCESS_DROPIN%/*}"
-    printf '# Gerado por cognitive-driver (enable-service.sh processes --with-io).\n[Service]\nAmbientCapabilities=CAP_SYS_PTRACE\nCapabilityBoundingSet=CAP_SYS_PTRACE\n' > "$PROCESS_DROPIN"
-    say "process-exporter com CAP_SYS_PTRACE (I/O de disco por processo)"
+    cat > "$PROCESS_DROPIN" <<'UNIT'
+# Gerado por cognitive-driver (enable-service.sh processes --with-io).
+[Service]
+AmbientCapabilities=CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+InaccessiblePaths=-/etc/shadow -/etc/gshadow -/etc/sudoers -/etc/sudoers.d -/etc/ssh -/etc/cognitive-driver
+UNIT
+    say "process-exporter com CAP_SYS_PTRACE e CAP_DAC_READ_SEARCH em sandbox (I/O de disco por processo)"
   else
     rm -f "$PROCESS_DROPIN"
   fi
@@ -271,7 +285,7 @@ CONF
   chmod 0644 "$PROCESS_CONFIG"
   # Sem métricas por thread: a saída cai de ~10 mil para ~2 mil linhas.
   set_exporter_args prometheus-process-exporter "-config.path=$PROCESS_CONFIG -web.listen-address=$LISTEN -threads=false"
-  local probe=$LISTEN
+  probe=$LISTEN # global: usado na checagem de I/O após o setup
   [[ ${probe%:*} == 0.0.0.0 ]] && probe=127.0.0.1:${LISTEN##*:}
   wait_for "http://$probe/metrics" '^namedprocess_namegroup_cpu_seconds_total' ||
     die "process-exporter não publicou métricas em $LISTEN (journalctl -u prometheus-process-exporter)"
@@ -349,6 +363,8 @@ if [[ $SERVICE == processes ]]; then
     warn "o process-exporter escuta na porta ${LISTEN##*:}, mas attribution.process_exporter_port é ${port:-9256}"
   fi
   if (( WITH_IO )); then
+    io=$(curl -sf -m 5 "http://$probe/metrics" 2>/dev/null | awk '/^namedprocess_namegroup_(read|write)_bytes_total/ && $NF > 0 {n++} END {print n + 0}')
+    (( io > 0 )) || warn "o I/O por processo ainda está zerado; veja grep Cap /proc/\$(pidof prometheus-process-exporter)/status"
     say "process-exporter ativo em $LISTEN; novos eventos de CPU, memória e disco indicam o processo responsável"
   else
     say "process-exporter ativo em $LISTEN; novos eventos de CPU e memória indicam o processo responsável"
