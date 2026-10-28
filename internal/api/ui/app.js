@@ -1,5 +1,6 @@
 // Painel do cognitive-driver: consome a API local (/health e /events).
-// Todo conteúdo vindo da API é inserido via textContent.
+// Todo conteúdo vindo da API é inserido via textContent. Textos da
+// interface vêm de i18n.js (t, LANG, locale).
 "use strict";
 
 const REFRESH_MS = 15000;
@@ -16,16 +17,7 @@ const LEGACY_UNITS = {
   node_network_receive_bytes_total: "bytes_per_second",
   node_network_transmit_bytes_total: "bytes_per_second",
 };
-const LEGACY_LABELS = {
-  node_cpu_seconds_total: "CPU",
-  node_memory_MemAvailable_bytes: "Memória disponível",
-  node_disk_io_time_seconds_total: "Disco (I/O)",
-  node_network_receive_bytes_total: "Rede (entrada)",
-  node_network_transmit_bytes_total: "Rede (saída)",
-};
-const STATUS_LABEL = {
-  open: "Aberto", acknowledged: "Reconhecido", resolved: "Resolvido", false_positive: "Falso positivo",
-};
+const statusLabel = (s) => (["open", "acknowledged", "resolved", "false_positive"].includes(s) ? t(`status.${s}`) : s);
 
 const state = {
   events: [],
@@ -33,12 +25,13 @@ const state = {
   selectedId: null,
   page: 1,
   filters: { status: "open", severity: "", driver: "", host: "", q: "" },
+  lastRefresh: null,
 };
 const $ = (sel) => document.querySelector(sel);
 
 // ---------------------------------------------------------------- formatação
 function num(v, digits) {
-  return Number(v).toLocaleString("pt-BR", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return Number(v).toLocaleString(locale(), { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 function bytes(v) {
   const units = ["B", "KiB", "MiB", "GiB", "TiB"];
@@ -51,12 +44,12 @@ function duration(v) {
   if (a < 60) return `${num(v, 0)} s`;
   if (a < 3600) return `${num(v / 60, 1)} min`;
   if (a < 86400) return `${num(v / 3600, 1)} h`;
-  return `${num(v / 86400, 1)} dias`;
+  return t("unit.days", { v: num(v / 86400, 1) });
 }
 // Mesmas unidades do pacote explain (Go).
 function fmtUnit(unit, v) {
   switch (unit) {
-    case "cores": return `${num(v, 2)} núcleos`;
+    case "cores": return t("unit.cores", { v: num(v, 2) });
     case "bytes": return bytes(v);
     case "bytes_per_second": return `${bytes(v)}/s`;
     case "ratio": return `${num(v * 100, 1)}%`;
@@ -64,7 +57,7 @@ function fmtUnit(unit, v) {
     case "count": return num(v, 1);
     case "milliseconds": return `${num(v, 1)} ms`;
     case "seconds": return duration(v);
-    case "bool": return v >= 0.5 ? "ativo (1)" : "inativo (0)";
+    case "bool": return v >= 0.5 ? t("unit.active") : t("unit.inactive");
     default: return num(v, 3);
   }
 }
@@ -77,11 +70,20 @@ function healthMetric(name) {
   return null;
 }
 
+// loc devolve os textos do evento no idioma do painel, ou null (português,
+// que está nos campos principais, ou evento gravado antes das traduções).
+function loc(e) {
+  return (LANG !== "pt-BR" && e.translations && e.translations[LANG]) || null;
+}
+const evText = (e, field) => (loc(e) && loc(e)[field]) || e[field];
+
 // metricInfo aceita um evento (usa metric_label/unit gravados) ou um nome.
 function metricInfo(x) {
   const name = typeof x === "string" ? x : x.metric;
   const h = healthMetric(name.replace(/\{.*\}$/, "")); // séries agrupadas: m{job="x"}
-  const label = (typeof x === "object" && x.metric_label) || (h && h.label) || LEGACY_LABELS[name] || name;
+  const hLabel = h && ((h.labels && h.labels[LANG]) || h.label);
+  const legacy = I18N["pt-BR"][`legacy.${name}`] ? t(`legacy.${name}`) : "";
+  const label = (typeof x === "object" && evText(x, "metric_label")) || hLabel || legacy || name;
   const unit = (typeof x === "object" && x.unit) || (h && h.unit) || LEGACY_UNITS[name] || "";
   return { label, unit, fmt: (v) => fmtUnit(unit, v) };
 }
@@ -90,7 +92,7 @@ function metricInfo(x) {
 function ruleText(e) {
   const [op, raw] = (e.rule || "").split(" ");
   const v = metricInfo(e).fmt(Number(raw));
-  return { above: `limite máximo ${v}`, below: `mínimo ${v}`, equals: `esperado ${v}` }[op] || e.rule;
+  return ["above", "below", "equals"].includes(op) ? t(`rule.${op}`, { v }) : e.rule;
 }
 
 function jobLabel(job) {
@@ -99,18 +101,18 @@ function jobLabel(job) {
 
 function relTime(iso) {
   const s = Math.round((Date.now() - new Date(iso)) / 1000);
-  if (s < 60) return "agora";
-  if (s < 3600) return `há ${Math.floor(s / 60)} min`;
-  if (s < 86400) return `há ${Math.floor(s / 3600)} h`;
-  return `há ${Math.floor(s / 86400)} d`;
+  if (s < 60) return t("time.now");
+  if (s < 3600) return t("time.min", { n: Math.floor(s / 60) });
+  if (s < 86400) return t("time.h", { n: Math.floor(s / 3600) });
+  return t("time.d", { n: Math.floor(s / 86400) });
 }
 function absTime(iso) {
-  return new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "medium" });
+  return new Date(iso).toLocaleString(locale(), { dateStyle: "short", timeStyle: "medium" });
 }
 function uptime(sec) {
-  if (sec >= 86400) return `${Math.floor(sec / 86400)} d ${Math.floor((sec % 86400) / 3600)} h`;
-  if (sec >= 3600) return `${Math.floor(sec / 3600)} h ${Math.floor((sec % 3600) / 60)} min`;
-  return `${Math.floor(sec / 60)} min`;
+  if (sec >= 86400) return t("uptime.dh", { d: Math.floor(sec / 86400), h: Math.floor((sec % 86400) / 3600) });
+  if (sec >= 3600) return t("uptime.hm", { h: Math.floor(sec / 3600), m: Math.floor((sec % 3600) / 60) });
+  return t("uptime.m", { m: Math.floor(sec / 60) });
 }
 
 // ---------------------------------------------------------------- DOM helpers
@@ -154,7 +156,7 @@ async function api(path, opts = {}) {
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   const resp = await fetch(path, { ...opts, headers });
-  if (resp.status === 401) throw new AuthError("token ausente ou inválido");
+  if (resp.status === 401) throw new AuthError(t("token.refused"));
   const body = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(body.error || `HTTP ${resp.status}`);
   return body;
@@ -184,14 +186,19 @@ async function refresh() {
   try {
     const data = await api(`../events?limit=${EVENTS_LIMIT}`);
     state.events = data.events || [];
+    state.lastRefresh = new Date();
     renderAll();
-    $("#last-refresh").textContent = `Atualizado às ${new Date().toLocaleTimeString("pt-BR")}`;
+    renderLastRefresh();
   } catch (e) {
-    if (e instanceof AuthError) openTokenDialog(getToken() ? "Token recusado pelo serviço." : "");
-    else $("#last-refresh").textContent = `Falha ao carregar eventos: ${e.message}`;
+    if (e instanceof AuthError) openTokenDialog(getToken() ? t("token.refused") : "");
+    else $("#last-refresh").textContent = t("top.loadFailed", { msg: e.message });
   } finally {
     buttons.forEach((b) => { b.disabled = false; });
   }
+}
+
+function renderLastRefresh() {
+  if (state.lastRefresh) $("#last-refresh").textContent = t("top.updated", { time: state.lastRefresh.toLocaleTimeString(locale()) });
 }
 
 // ---------------------------------------------------------------- render: serviço
@@ -199,23 +206,23 @@ function renderOffline() {
   $("#collect-alerts").replaceChildren();
   const pill = $("#service-status");
   pill.className = "status-pill offline";
-  pill.textContent = "Sem conexão";
-  $("#hero-text").textContent = "Serviço indisponível";
+  pill.textContent = t("service.offline");
+  $("#hero-text").textContent = t("service.down");
   $("#hero-pill .dot").className = "dot bad";
-  $("#acct-sub").textContent = "desconectado";
+  $("#acct-sub").textContent = t("acct.offline");
 }
 
 function renderHealth() {
   const h = state.health;
-  const label = { ok: "Operacional", degraded: "Coleta com falha", unhealthy: "Indisponível" }[h.status] || h.status;
+  const label = ["ok", "degraded", "unhealthy"].includes(h.status) ? t(`service.${h.status}`) : h.status;
   const pill = $("#service-status");
   pill.className = `status-pill ${h.status}`;
   pill.textContent = label;
   $("#hero-pill .dot").className = `dot ${h.status === "ok" ? "ok" : "bad"}`;
-  $("#hero-text").textContent = `${label} · v${h.version} · no ar há ${uptime(h.uptime_seconds)}`;
+  $("#hero-text").textContent = t("hero.status", { label, v: h.version, uptime: uptime(h.uptime_seconds) });
   const targets = h.targets || [];
-  const hosts = new Set(targets.map((t) => t.host)).size;
-  $("#acct-sub").textContent = `v${h.version} · ${hosts} host${hosts === 1 ? "" : "s"} · ${targets.length} alvo${targets.length === 1 ? "" : "s"}`;
+  const hosts = new Set(targets.map((x) => x.host)).size;
+  $("#acct-sub").textContent = t("acct.summary", { v: h.version, hosts, targets: targets.length });
   renderCollectAlerts(targets);
 }
 
@@ -226,62 +233,60 @@ function diagnose(error, job) {
   if (/connection refused/i.test(error) && job && job !== "node") {
     const svc = jobLabel(job);
     return {
-      title: `O exporter do ${svc} não está respondendo`,
-      text: local
-        ? `O driver ${job} está ativo, mas nada responde em ${url}. Rode de novo a configuração do serviço (no diretório do projeto) ou desative o driver:`
-        : `Nada está escutando em ${url}. Verifique o exporter do ${svc} nesse host.`,
+      title: t("diag.exporterDown", { svc }),
+      text: local ? t("diag.exporterLocal", { job, url }) : t("diag.exporterRemote", { url, svc }),
       cmd: local ? `sudo scripts/enable-service.sh ${svc}` : "",
     };
   }
   if (/connection refused/i.test(error)) {
     return {
-      title: "O node_exporter não está respondendo",
-      text: local
-        ? "Nada está escutando no endereço configurado. Instale o node_exporter (ou inicie o serviço, se já estiver instalado):"
-        : `Nada está escutando em ${url}. Verifique se o node_exporter está rodando nesse host e se a porta está liberada.`,
+      title: t("diag.nodeDown"),
+      text: local ? t("diag.nodeLocal") : t("diag.nodeRemote", { url }),
       cmd: local ? "sudo apt install prometheus-node-exporter && sudo systemctl enable --now prometheus-node-exporter" : "",
     };
   }
   if (/no such host|server misbehaving/i.test(error)) {
-    return { title: "Host do alvo não encontrado", text: "O nome do host não resolve via DNS. Corrija collector.targets[].url na configuração:", cmd: "sudoedit /etc/cognitive-driver/config.yaml && sudo systemctl restart cognitive-driver" };
+    return { title: t("diag.dnsTitle"), text: t("diag.dnsText"), cmd: "sudoedit /etc/cognitive-driver/config.yaml && sudo systemctl restart cognitive-driver" };
   }
   if (/timeout|deadline exceeded/i.test(error)) {
-    return { title: "Coleta excedeu o tempo limite", text: "O node_exporter demorou demais para responder ou há perda de pacotes na rede. Verifique a carga do host e collector.timeout.", cmd: "" };
+    return { title: t("diag.timeoutTitle"), text: t("diag.timeoutText"), cmd: "" };
   }
   if (/status \d{3}/.test(error)) {
-    return { title: "O endpoint de métricas respondeu com erro", text: "O endereço responde, mas não é um /metrics válido. Confira a URL do alvo na configuração:", cmd: "sudoedit /etc/cognitive-driver/config.yaml && sudo systemctl restart cognitive-driver" };
+    return { title: t("diag.statusTitle"), text: t("diag.statusText"), cmd: "sudoedit /etc/cognitive-driver/config.yaml && sudo systemctl restart cognitive-driver" };
   }
-  return { title: "Falha na coleta de métricas", text: "Verifique os logs do serviço para mais detalhes:", cmd: "journalctl -u cognitive-driver -n 50" };
+  return { title: t("diag.otherTitle"), text: t("diag.otherText"), cmd: "journalctl -u cognitive-driver -n 50" };
 }
 
 function renderCollectAlerts(targets) {
   const box = $("#collect-alerts");
   box.replaceChildren();
-  for (const t of targets) {
-    if (t.ok || !t.last_attempt) continue;
-    const d = diagnose(t.last_error || "", t.job);
+  for (const tg of targets) {
+    if (tg.ok || !tg.last_attempt) continue;
+    const d = diagnose(tg.last_error || "", tg.job);
     const alert = el("div", "alert");
     alert.setAttribute("role", "alert");
-    const since = t.last_success
-      ? `Última coleta bem-sucedida ${relTime(t.last_success)} (${absTime(t.last_success)}).`
-      : "Nenhuma coleta bem-sucedida desde que o serviço iniciou; a baseline não está sendo aprendida.";
-    alert.append(icon("alert"), el("h3", "", `Coleta falhando em ${t.host}${t.job && t.job !== "node" ? ` (${jobLabel(t.job)})` : ""}: ${d.title.toLowerCase()}`));
+    const since = tg.last_success
+      ? t("alert.lastOk", { rel: relTime(tg.last_success), abs: absTime(tg.last_success) })
+      : t("alert.neverOk");
+    alert.append(icon("alert"), el("h3", "", t("alert.title", {
+      host: tg.host, job: tg.job && tg.job !== "node" ? ` (${jobLabel(tg.job)})` : "", title: d.title.toLowerCase(),
+    })));
     const body = el("div");
-    body.append(el("p", "", since), el("p", "err", t.last_error || ""));
+    body.append(el("p", "", since), el("p", "err", tg.last_error || ""));
     const fix = el("div", "fix");
     fix.append(el("p", "", d.text));
     if (d.cmd) {
       const cmd = el("div", "cmd");
       const btn = el("button", "btn");
-      const label = el("span", "", "Copiar");
+      const label = el("span", "", t("alert.copy"));
       btn.type = "button";
       btn.append(icon("copy"), label);
       btn.addEventListener("click", async () => {
         try {
           await navigator.clipboard.writeText(d.cmd);
-          label.textContent = "Copiado";
+          label.textContent = t("alert.copied");
         } catch {
-          label.textContent = "Selecione e copie";
+          label.textContent = t("alert.copyManual");
         }
       });
       cmd.append(el("code", "", d.cmd), btn);
@@ -316,7 +321,7 @@ function renderKPIs() {
   $("#kpi-ack").textContent = count((e) => e.status === "acknowledged");
   $("#kpi-resolved").textContent = count((e) => e.status === "resolved");
   $("#kpi-fp").textContent = count((e) => e.status === "false_positive");
-  $("#summary-scope").textContent = `Últimos ${state.events.length} eventos`;
+  $("#summary-scope").textContent = t("summary.scope", { n: state.events.length });
 }
 
 function renderSidebar() {
@@ -325,7 +330,7 @@ function renderSidebar() {
   const recent = $("#nav-recent");
   recent.replaceChildren();
   const latest = state.events.slice(0, 5);
-  if (latest.length === 0) recent.append(el("div", "sub-empty", "Nenhum evento ainda"));
+  if (latest.length === 0) recent.append(el("div", "sub-empty", t("nav.noEvents")));
   for (const e of latest) {
     const b = el("button", "sub-item");
     b.type = "button";
@@ -339,17 +344,18 @@ function renderSidebar() {
   drivers.replaceChildren();
   for (const d of h.drivers || []) {
     const a = navFilterItem(d.name, d.enabled ? "ok" : "off", openCount((e) => e.driver === d.name), "driver", d.name);
-    a.title = `${d.enabled ? "Habilitado" : "Desabilitado"} · v${d.version} · contrato ${d.contract}\n${(d.metric_details || []).map((m) => m.label).join(", ")}`;
+    a.title = `${t("driver.tooltip", { state: t(d.enabled ? "driver.enabled" : "driver.disabled"), v: d.version, contract: d.contract })}\n` +
+      (d.metric_details || []).map((m) => (m.labels && m.labels[LANG]) || m.label).join(", ");
     drivers.append(a);
   }
   const hosts = $("#nav-hosts");
   hosts.replaceChildren();
-  for (const t of h.targets || []) {
+  for (const tg of h.targets || []) {
     // Cada alvo conta os eventos dos drivers que o observam.
-    const owners = new Set((h.drivers || []).filter((d) => d.job === t.job).map((d) => d.name));
-    const label = t.job === "node" ? t.host : `${t.host} · ${jobLabel(t.job)}`;
-    const a = navFilterItem(label, t.ok ? "ok" : "bad", openCount((e) => e.host === t.host && owners.has(e.driver)), "host", t.host);
-    a.title = t.ok ? `Última coleta: ${absTime(t.last_success)}` : (t.last_error || "Sem coleta ainda");
+    const owners = new Set((h.drivers || []).filter((d) => d.job === tg.job).map((d) => d.name));
+    const label = tg.job === "node" ? tg.host : `${tg.host} · ${jobLabel(tg.job)}`;
+    const a = navFilterItem(label, tg.ok ? "ok" : "bad", openCount((e) => e.host === tg.host && owners.has(e.driver)), "host", tg.host);
+    a.title = tg.ok ? t("target.last", { when: absTime(tg.last_success) }) : (tg.last_error || t("target.never"));
     hosts.append(a);
   }
 }
@@ -389,12 +395,12 @@ function renderColumns() {
   const drv = $("#col-drivers");
   drv.replaceChildren();
   const drivers = (state.health && state.health.drivers) || [];
-  if (drivers.length === 0) drv.append(el("div", "row-empty", "Nenhum driver carregado"));
+  if (drivers.length === 0) drv.append(el("div", "row-empty", t("col.noDrivers")));
   for (const d of drivers) {
     const label = el("span", "row-label", d.name);
-    if (!d.enabled) label.append(el("span", "muted", " (desabilitado)"));
+    if (!d.enabled) label.append(el("span", "muted", t("col.disabled")));
     drv.append(rowButton([icon(driverIcon(d.name)), label,
-      el("span", "row-count", `${openCount((e) => e.driver === d.name)} abertos`)], () => {
+      el("span", "row-count", t("col.openCount", { n: openCount((e) => e.driver === d.name) }))], () => {
       setFilter("driver", d.name);
       scrollToEvents();
     }));
@@ -404,7 +410,7 @@ function renderColumns() {
   rec.replaceChildren();
   const latest = state.events.slice(0, 5);
   if (latest.length === 0) {
-    rec.append(el("div", "row-empty", "Sem anomalias. Durante o aprendizado da baseline (~5 min) nenhum evento é gerado."));
+    rec.append(el("div", "row-empty", t("col.noRecent")));
   }
   for (const e of latest) {
     const label = el("span", "row-label");
@@ -417,14 +423,14 @@ function renderColumns() {
 function renderChips() {
   const box = $("#active-filters");
   box.replaceChildren();
-  const labels = { driver: "Driver", host: "Host", q: "Busca" };
+  const labels = { driver: t("chip.driver"), host: t("chip.host"), q: t("chip.q") };
   for (const key of ["driver", "host", "q"]) {
     const v = state.filters[key];
     if (!v) continue;
     const chip = el("span", "chip", `${labels[key]}: ${v}`);
     const x = el("button");
     x.type = "button";
-    x.setAttribute("aria-label", `Remover filtro ${labels[key]}`);
+    x.setAttribute("aria-label", t("filter.remove", { name: labels[key] }));
     x.append(icon("x"));
     x.addEventListener("click", () => {
       if (key === "q") $("#q").value = "";
@@ -442,14 +448,14 @@ function matches(e) {
   if (f.driver && e.driver !== f.driver) return false;
   if (f.host && e.host !== f.host) return false;
   if (f.q) {
+    const tr = Object.values(e.translations || {}).flatMap((x) => [x.metric_label, x.explanation, x.probable_cause, x.recommendation]);
     const hay = [metricInfo(e).label, e.metric, e.host, e.driver, e.severity,
-      e.recommendation, e.explanation, e.probable_cause, e.feedback].join(" ").toLowerCase();
+      e.recommendation, e.explanation, e.probable_cause, e.feedback, ...tr].join(" ").toLowerCase();
     return f.q.toLowerCase().split(/\s+/).every((t) => hay.includes(t));
   }
   return true;
 }
 
-const RESOURCE_LABEL = { cpu: "CPU", memory: "memória residente", io: "leitura + escrita em disco" };
 
 // Grupo de processos que mais consumia o recurso quando o evento foi registrado.
 function responsible(e) {
@@ -471,7 +477,7 @@ function wantsIO(e) {
 // Reemissões da mesma métrica com o evento ainda ativo viram ocorrências.
 function occurrencesText(e) {
   const n = e.occurrences || 1;
-  return n > 1 ? ` · ${n} ocorrências, última ${relTime(e.last_seen)}` : "";
+  return n > 1 ? ` · ${t("list.occurrences", { n, when: relTime(e.last_seen) })}` : "";
 }
 
 function renderList() {
@@ -480,9 +486,7 @@ function renderList() {
   list.replaceChildren();
   renderPager(items.length);
   if (items.length === 0) {
-    const msg = state.events.length === 0
-      ? "Nenhuma anomalia registrada até agora."
-      : "Nenhum evento corresponde aos filtros.";
+    const msg = state.events.length === 0 ? t("list.none") : t("list.noMatch");
     list.append(el("div", "list-empty", msg));
     return;
   }
@@ -497,12 +501,15 @@ function renderList() {
     const title = el("div", "event-title");
     title.append(el("span", `sev ${e.severity}`, e.severity), el("span", "", `${m.label} · ${e.host}`));
     const main = el("div", "event-main");
-    main.append(title, el("div", "event-reco", e.recommendation),
-      el("div", "event-meta", `${e.driver} · ${e.detector === "rule" ? `regra: ${ruleText(e)}` : `z ${num(e.zscore, 1)}`} · observado ${m.fmt(e.value)}${responsible(e) ? ` · responsável: ${responsible(e).group}` : ""}${occurrencesText(e)}`));
+    const meta = [e.driver, e.detector === "rule" ? t("list.rule", { rule: ruleText(e) }) : `z ${num(e.zscore, 1)}`,
+      t("list.observed", { value: m.fmt(e.value) })];
+    if (responsible(e)) meta.push(t("list.responsible", { name: responsible(e).group }));
+    main.append(title, el("div", "event-reco", evText(e, "recommendation")),
+      el("div", "event-meta", meta.join(" · ") + occurrencesText(e)));
     const side = el("div", "event-side");
     const time = el("span", "", relTime(e.timestamp));
     time.title = absTime(e.timestamp);
-    side.append(el("span", `status ${e.status}`, STATUS_LABEL[e.status] || e.status), time, icon("chev"));
+    side.append(el("span", `status ${e.status}`, statusLabel(e.status)), time, icon("chev"));
 
     b.append(el("span", `sev-dot ${e.severity}`), main, side);
     b.addEventListener("click", () => openDrawer(e.id));
@@ -518,8 +525,9 @@ function renderPager(total) {
   pager.hidden = pages <= 1;
   if (pager.hidden) return;
   const start = (state.page - 1) * PAGE_SIZE;
-  $("#pager-info").textContent =
-    `${start + 1}–${Math.min(start + PAGE_SIZE, total)} de ${total} · página ${state.page} de ${pages}`;
+  $("#pager-info").textContent = t("pager.info", {
+    from: start + 1, to: Math.min(start + PAGE_SIZE, total), total, page: state.page, pages,
+  });
   $("#pager-prev").disabled = state.page <= 1;
   $("#pager-next").disabled = state.page >= pages;
 }
@@ -604,32 +612,33 @@ function renderDetail() {
   if (!e) return;
   const m = metricInfo(e);
   const node = $("#tpl-detail").content.cloneNode(true);
+  applyI18n(node);
   const q = (s) => node.querySelector(s);
 
-  $("#drawer-crumbs").textContent = `Eventos / ${m.label} · ${e.host}`;
+  $("#drawer-crumbs").textContent = t("drawer.crumbs", { label: m.label, host: e.host });
   q(".sev").className = `sev ${e.severity}`;
   q(".sev").textContent = e.severity;
   q(".status").className = `status ${e.status}`;
-  q(".status").textContent = STATUS_LABEL[e.status] || e.status;
+  q(".status").textContent = statusLabel(e.status);
   q(".when").textContent = (e.occurrences || 1) > 1
-    ? `Aberto ${absTime(e.timestamp)} · última ocorrência ${relTime(e.last_seen)} (${e.occurrences}×)`
-    : `${absTime(e.timestamp)} (${relTime(e.timestamp)})`;
-  q(".detail-title").textContent = `${m.label} em ${e.host}`;
+    ? t("detail.whenRepeated", { abs: absTime(e.timestamp), rel: relTime(e.last_seen), n: e.occurrences })
+    : t("detail.when", { abs: absTime(e.timestamp), rel: relTime(e.timestamp) });
+  q(".detail-title").textContent = t("detail.title", { label: m.label, host: e.host });
   q(".detail-meta").textContent = `${e.driver} v${e.driver_version} · ${e.metric} · ${e.id}`;
-  q(".recommendation").textContent = e.recommendation;
-  q(".explanation").textContent = e.explanation;
-  q(".cause").textContent = e.probable_cause;
+  q(".recommendation").textContent = evText(e, "recommendation");
+  q(".explanation").textContent = evText(e, "explanation");
+  q(".cause").textContent = evText(e, "probable_cause");
 
   const isRule = e.detector === "rule";
   q(".z-card").hidden = isRule;
   q(".evidence-card").hidden = isRule;
   q(".rule-card").hidden = !isRule;
   if (isRule) {
-    q(".rule-text").textContent = `Observado ${m.fmt(e.value)} · ${ruleText(e)}. Detecção por regra fixa: não depende de baseline.`;
+    q(".rule-text").textContent = t("detail.ruleText", { value: m.fmt(e.value), rule: ruleText(e) });
   }
   const absZ = Math.abs(e.zscore);
   q(".zmarker").style.left = `${(Math.min(absZ, 15) / 15) * 100}%`;
-  q(".zbar").setAttribute("aria-label", `${num(absZ, 1)} desvios-padrão (${e.severity})`);
+  q(".zbar").setAttribute("aria-label", t("detail.zAria", { z: num(absZ, 1), sev: e.severity }));
   q(".zbar").title = `|z| = ${num(absZ, 1)}`;
 
   renderOwner(q, e);
@@ -638,18 +647,19 @@ function renderDetail() {
   const decision = closestWindow(e);
   for (const w of e.evidence || []) {
     const tr = el("tr", w.window === decision ? "decision" : "");
-    tr.append(el("td", "", w.window + (w.window === decision ? " (decisão)" : "")),
+    tr.append(el("td", "", w.window + (w.window === decision ? t("detail.decision") : "")),
       el("td", "", m.fmt(w.mean)), el("td", "", m.fmt(w.stddev)),
       el("td", Math.abs(w.zscore) >= 3 ? "hot" : "", num(w.zscore, 1)));
     tbody.append(tr);
   }
-  if (!isRule) q(".numbers").textContent =
-    `Observado ${m.fmt(e.value)} · baseline ${m.fmt(e.baseline_mean)} ± ${m.fmt(e.baseline_stddev)} · score ${num(e.score, 3)}`;
+  if (!isRule) q(".numbers").textContent = t("detail.numbers", {
+    value: m.fmt(e.value), mean: m.fmt(e.baseline_mean), stddev: m.fmt(e.baseline_stddev), score: num(e.score, 3),
+  });
 
   const ta = q("textarea");
   ta.value = e.feedback || "";
   q(".saved-feedback").textContent = e.feedback
-    ? `Último feedback (${absTime(e.updated_at)}): “${e.feedback}”`
+    ? t("detail.lastFeedback", { when: absTime(e.updated_at), text: e.feedback })
     : "";
   for (const btn of node.querySelectorAll(".actions .btn")) {
     if (btn.dataset.status === e.status) btn.classList.add("active");
@@ -672,27 +682,23 @@ function renderOwner(q, e) {
   const top = responsible(e);
   if (!top) {
     card.classList.add("empty");
-    q(".owner-note").textContent = wantsIO(e)
-      ? "Sem dados de processo para este evento. Para disco, o process-exporter precisa ler o I/O de outros " +
-        "usuários: sudo scripts/enable-service.sh processes --with-io."
-      : "Sem dados de processo para este evento. Instale o process-exporter no host " +
-        "(sudo scripts/enable-service.sh processes) para que os próximos eventos indiquem o responsável.";
+    q(".owner-note").textContent = t(wantsIO(e) ? "owner.noIO" : "owner.none");
     return;
   }
   const fmt = (v) => fmtUnit(a.unit, v);
   const share = (p) => `${num(p.share * 100, 0)}%`;
   q(".owner-name").textContent = top.group;
-  q(".owner-value").textContent = `${fmt(top.value)} · ${share(top)} do ${RESOURCE_LABEL[a.resource] || a.resource} medido`;
+  const resource = ["cpu", "memory", "io"].includes(a.resource) ? t(`resource.${a.resource}`) : a.resource;
+  q(".owner-value").textContent = t("owner.value", { value: fmt(top.value), share: share(top), resource });
   q(".owner-bar span").style.width = `${Math.min(100, top.share * 100)}%`;
-  q(".owner-bar").setAttribute("aria-label", `${top.group}: ${share(top)} do total`);
+  q(".owner-bar").setAttribute("aria-label", t("owner.aria", { name: top.group, share: share(top) }));
   const tbody = q(".owners tbody");
   a.processes.forEach((p, i) => {
     const tr = el("tr", i === 0 ? "top" : "");
     tr.append(el("td", "", p.group), el("td", "", fmt(p.value)), el("td", "", share(p)), el("td", "", p.procs ? String(p.procs) : "—"));
     tbody.append(tr);
   });
-  q(".owner-note").textContent = `Medido pelo ${a.source} em ${absTime(a.at)}, por grupo de processos com o mesmo nome. ` +
-    "Indica quem mais consumia o recurso no momento, não a causa confirmada.";
+  q(".owner-note").textContent = t("owner.note", { source: a.source, when: absTime(a.at) });
 }
 
 // A janela de decisão é a que tem as mesmas média/desvio do evento.
@@ -718,8 +724,8 @@ async function updateStatus(id, status, feedback, panel) {
     panel.dataset.id = "";
     renderAll();
   } catch (e) {
-    if (e instanceof AuthError) openTokenDialog("Token recusado pelo serviço.");
-    else alert(`Falha ao atualizar o evento: ${e.message}`);
+    if (e instanceof AuthError) openTokenDialog(t("token.refused"));
+    else alert(t("action.failed", { msg: e.message }));
     buttons.forEach((b) => { b.disabled = false; });
   }
 }
@@ -781,6 +787,16 @@ document.addEventListener("keydown", (ev) => {
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 
 window.addEventListener("hashchange", openFromHash);
+
+// Troca de idioma: textos estáticos via applyI18n, o resto é redesenhado.
+$("#lang").value = LANG;
+$("#lang").addEventListener("change", (ev) => {
+  setLang(ev.target.value);
+  if (state.health) renderHealth(); else if (state.lastRefresh) renderOffline();
+  renderAll();
+  renderLastRefresh();
+});
+setLang(LANG);
 
 refresh().then(openFromHash);
 setInterval(() => { if (!document.hidden) refresh(); }, REFRESH_MS);

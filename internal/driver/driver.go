@@ -34,6 +34,16 @@ type MetricInfo struct {
 	// Attribute é o recurso (cpu, memory, io) usado para apontar o
 	// processo responsável pelos eventos da métrica.
 	Attribute string `json:"attribute,omitempty"`
+	// Labels traz o rótulo em outros idiomas ({"en": "CPU usage"}).
+	Labels map[string]string `json:"labels,omitempty"`
+}
+
+// Localized são os textos de um evento em um idioma.
+type Localized struct {
+	MetricLabel    string `json:"metric_label"`
+	Explanation    string `json:"explanation"`
+	ProbableCause  string `json:"probable_cause"`
+	Recommendation string `json:"recommendation"`
 }
 
 // Info descreve um driver para o /health.
@@ -151,7 +161,11 @@ func NewStatistical(cfg config.Driver, interval time.Duration) *Statistical {
 	for _, m := range cfg.Metrics {
 		spec := &metricSpec{override: toOverride(m.Describe)}
 		label, unit := explain.Describe(m.Key(), spec.override)
-		spec.info = MetricInfo{Name: m.Key(), Label: label, Unit: unit, Detector: anomaly.DetectorStatistical, Attribute: attributeFor(m)}
+		spec.info = MetricInfo{Name: m.Key(), Label: label, Unit: unit, Detector: anomaly.DetectorStatistical, Attribute: attributeFor(m),
+			Labels: map[string]string{}}
+		for _, lang := range explain.Translations {
+			spec.info.Labels[lang] = explain.DescribeIn(lang, m.Key(), spec.override)
+		}
 		if r := m.Rule; r != nil {
 			rule := toRule(r)
 			spec.info.Detector = anomaly.DetectorRule
@@ -186,12 +200,20 @@ func toOverride(d *config.Describe) *explain.Override {
 	if d == nil {
 		return nil
 	}
-	return &explain.Override{
+	o := &explain.Override{
 		Label: d.Label,
 		Unit:  d.Unit,
 		Up:    explain.Guidance{Cause: d.Up.Cause, Recommendation: d.Up.Recommendation},
 		Down:  explain.Guidance{Cause: d.Down.Cause, Recommendation: d.Down.Recommendation},
 	}
+	if t := d.EN; t != nil {
+		o.EN = &explain.Translation{
+			Label: t.Label,
+			Up:    explain.Guidance{Cause: t.Up.Cause, Recommendation: t.Up.Recommendation},
+			Down:  explain.Guidance{Cause: t.Down.Cause, Recommendation: t.Down.Recommendation},
+		}
+	}
+	return o
 }
 
 func (s *Statistical) Info() Info {
@@ -283,6 +305,48 @@ func (s *Statistical) Explain(a Anomaly) explain.Explanation {
 func (s *Statistical) Recommend(a Anomaly) policy.Action {
 	base, _ := feature.SplitSeries(a.Metric)
 	return policy.Action{Type: "recommendation", Description: explain.Recommend(base, a.Result, s.override(a))}
+}
+
+// Translate gera rótulo, explicação, causa e recomendação nos idiomas de
+// explain.Translations. Não faz parte do contrato Driver: o runner usa se o
+// driver oferecer.
+func (s *Statistical) Translate(a Anomaly) map[string]Localized {
+	spec := s.spec(a.Metric)
+	if spec == nil {
+		return nil
+	}
+	base, group := feature.SplitSeries(a.Metric)
+	out := map[string]Localized{}
+	for _, lang := range explain.Translations {
+		label := spec.info.Labels[lang]
+		if group != "" {
+			label += " · " + feature.GroupValues(group)
+		}
+		var o *explain.Override
+		if spec.override != nil {
+			c := *spec.override
+			o = &c
+		}
+		if group != "" { // a explicação cita o job/pool, como em português
+			if o == nil {
+				o = &explain.Override{}
+			}
+			en := explain.Translation{}
+			if o.EN != nil {
+				en = *o.EN
+			}
+			en.Label = label
+			o.EN = &en
+		}
+		ex := explain.ExplainIn(lang, base, a.Result, o)
+		out[lang] = Localized{
+			MetricLabel:    label,
+			Explanation:    ex.Summary,
+			ProbableCause:  ex.ProbableCause,
+			Recommendation: explain.RecommendIn(lang, base, a.Result, o),
+		}
+	}
+	return out
 }
 
 // override devolve o describe da métrica; em séries agrupadas o rótulo

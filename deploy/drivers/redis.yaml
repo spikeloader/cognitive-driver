@@ -17,6 +17,11 @@ drivers:
           down:
             cause: Redis parado, sem memória para aceitar conexões ou exporter sem acesso (senha, bind, socket).
             recommendation: Verificar systemctl status redis-server, o log em /var/log/redis/ e redis-cli ping.
+          en:
+            label: "Redis available"
+            down:
+              cause: "Redis stopped, out of memory to accept connections, or the exporter has no access (password, bind, socket)."
+              recommendation: "Check systemctl status redis-server, the log in /var/log/redis/ and redis-cli ping."
       # Conexões recusadas por maxclients.
       - name: redis_rejected_connections_total
         rule: {above: 0, severity: high}
@@ -26,6 +31,11 @@ drivers:
           up:
             cause: O limite maxclients foi atingido (vazamento de conexões na aplicação ou pool mal dimensionado).
             recommendation: Ver CLIENT LIST agrupando por addr/name, revisar o pool de conexões da aplicação e, se legítimo, aumentar maxclients.
+          en:
+            label: "Connections rejected by Redis"
+            up:
+              cause: "The maxclients limit was reached (connection leak in the application or a badly sized pool)."
+              recommendation: "Check CLIENT LIST grouped by addr/name, review the application's connection pool and, if legitimate, raise maxclients."
       # Uso de memória em relação ao maxmemory (sem maxmemory, a razão não é calculada).
       - name: redis_memory_used_bytes
         alias: redis_memory_ratio
@@ -37,6 +47,11 @@ drivers:
           up:
             cause: O dataset está perto do maxmemory; a partir dele o Redis despeja chaves ou recusa escritas, conforme maxmemory-policy.
             recommendation: Ver MEMORY STATS e as maiores chaves (redis-cli --bigkeys), conferir TTLs e a maxmemory-policy.
+          en:
+            label: "Redis memory (share of maxmemory)"
+            up:
+              cause: "The dataset is close to maxmemory; beyond it Redis evicts keys or refuses writes, depending on maxmemory-policy."
+              recommendation: "Check MEMORY STATS and the biggest keys (redis-cli --bigkeys), review TTLs and the maxmemory-policy."
       # Persistência: último BGSAVE falhou (escritas podem ser recusadas com stop-writes-on-bgsave-error).
       - name: redis_rdb_last_bgsave_status
         rule: {equals: 1, severity: high}
@@ -46,6 +61,11 @@ drivers:
           down:
             cause: O BGSAVE falhou (disco cheio, permissão no diretório, fork sem memória).
             recommendation: Ver o log do Redis, o espaço em disco no diretório 'dir' e vm.overcommit_memory.
+          en:
+            label: "Redis last RDB snapshot"
+            down:
+              cause: "BGSAVE failed (disk full, directory permission, fork without memory)."
+              recommendation: "Check the Redis log, free space in the 'dir' directory and vm.overcommit_memory."
       # Réplica sem link com o primário (a métrica só existe em réplicas).
       - name: redis_master_link_up
         rule: {equals: 1, severity: critical}
@@ -55,6 +75,11 @@ drivers:
           down:
             cause: A réplica perdeu a conexão com o primário (rede, autenticação, primário fora do ar).
             recommendation: Ver INFO replication na réplica e no primário e a conectividade entre eles.
+          en:
+            label: "Redis replica link to the primary"
+            down:
+              cause: "The replica lost its connection to the primary (network, authentication, primary down)."
+              recommendation: "Check INFO replication on the replica and the primary and the connectivity between them."
       # Chaves despejadas: aumento indica pressão de memória.
       - name: redis_evicted_keys_total
         min_stddev: 1
@@ -64,9 +89,14 @@ drivers:
           up:
             cause: O Redis está removendo chaves para caber no maxmemory; o cache perde eficiência.
             recommendation: Comparar com o crescimento do dataset e a taxa de misses; avaliar mais memória ou TTLs menores.
+          en:
+            label: "Redis evicted keys"
+            up:
+              cause: "Redis is removing keys to fit maxmemory; the cache becomes less effective."
+              recommendation: "Compare with dataset growth and the miss rate; consider more memory or shorter TTLs."
       # Comandos por segundo e misses (cache frio, chave inexistente em loop).
       - name: redis_commands_processed_total
-        describe: {label: Comandos do Redis, unit: per_second}
+        describe: {label: Comandos do Redis, unit: per_second, en: {label: "Redis commands"}}
       - name: redis_keyspace_misses_total
         min_stddev: 5
         describe:
@@ -75,6 +105,11 @@ drivers:
           up:
             cause: Leituras de chaves inexistentes acima do normal (cache invalidado, deploy, chave com nome errado).
             recommendation: Correlacionar com deploys e flushes; ver as chaves mais acessadas com redis-cli --hotkeys (requer política LFU).
+          en:
+            label: "Redis keyspace misses"
+            up:
+              cause: "More reads of missing keys than usual (cache invalidated, deploy, misspelled key)."
+              recommendation: "Correlate with deploys and flushes; see the hottest keys with redis-cli --hotkeys (requires an LFU policy)."
       - name: redis_connected_clients
         min_stddev: 5
         describe:
@@ -83,3 +118,8 @@ drivers:
           up:
             cause: Mais conexões que o habitual (pico de tráfego, pool sem limite, conexões não fechadas).
             recommendation: Ver CLIENT LIST agrupando por origem e o tamanho dos pools das aplicações.
+          en:
+            label: "Clients connected to Redis"
+            up:
+              cause: "More connections than usual (traffic spike, unbounded pool, connections never closed)."
+              recommendation: "Check CLIENT LIST grouped by source and the applications' pool sizes."

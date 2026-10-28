@@ -30,10 +30,10 @@ node_exporter → Collector → Feature Engine → Anomaly Engine → Explanatio
   jobs, Redis, Memcached, PostgreSQL and MySQL ship ready to use; any
   Prometheus exporter becomes a driver without code.
 
-> **Language note:** the web UI, the explanations and the recommendations
-> generated for events are currently in Brazilian Portuguese. Configuration,
-> metrics and the API are language-neutral. Translations are welcome — see
-> [CONTRIBUTING.md](CONTRIBUTING.md).
+> **Languages:** the web UI and the event texts (explanation, probable cause,
+> recommendation) are available in English and Brazilian Portuguese. Pick the
+> language at the top of the UI; it defaults to the browser's. The API's main
+> fields are in Portuguese and each event also carries `translations.en`.
 
 ## Installing on a host
 
@@ -191,10 +191,13 @@ sudo scripts/enable-service.sh processes --listen 0.0.0.0:9256 # host scraped by
   no per-process network data).
 - If the process-exporter is unavailable the event is opened anyway, without
   a responsible process.
-- Disk events need `--with-io`: the kernel only exposes `/proc/<pid>/io` of
-  other users' processes to `CAP_SYS_PTRACE`, which this option grants to the
-  process-exporter (opt-in, since it widens what the exporter can read).
-  Without it, CPU and memory events are attributed and disk events are not.
+- Disk events need `--with-io`. `/proc/<pid>/io` is readable only by the
+  process owner, so reading it for other users needs `CAP_DAC_READ_SEARCH`
+  (file permission) and `CAP_SYS_PTRACE` (the kernel's ptrace check). The
+  option grants both to the process-exporter inside a sandbox (read-only
+  filesystem, no `/home`, `/root`, `/etc/shadow`, `/etc/ssh` or sudoers). It is
+  opt-in because it widens what the exporter can read. Without it, CPU and
+  memory events are attributed and disk events are not.
 
 ### PHP
 
@@ -266,7 +269,8 @@ Metric fields: `match`/`exclude` (label regexes), `type`
 `group_by` (one feature and one event per label value, e.g. `[job]`, `[pool]`,
 instead of summing the series), `subtract`/`divide_by` (derived metrics),
 `attribute` (`cpu`/`memory`/`io`/`none`: resource used to name the
-responsible process), `rule` (`above`/`below`/`equals` + `severity`), `min_stddev` (absolute floor
+responsible process), `describe.en` (the same `label`/`up`/`down` texts in
+English, used by the English UI), `rule` (`above`/`below`/`equals` + `severity`), `min_stddev` (absolute floor
 for the deviation, useful for small counts) and `describe` (`label`, `unit` —
 cores, bytes, bytes_per_second, ratio, per_second, count, milliseconds,
 seconds, bool — plus cause/recommendation for `up`/`down`). Validate with
@@ -276,7 +280,10 @@ seconds, bool — plus cause/recommendation for `up`/`down`). Validate with
 
 Open **http://127.0.0.1:8088/** (redirects to `/ui/`). The UI is embedded in
 the binary, loads nothing from external origins and only uses this service's
-`/health` and `/events`. It shows:
+`/health` and `/events`. It is available in English and Brazilian Portuguese
+(selector at the top, remembered per browser; the default follows the
+browser language). Events recorded before translations existed get them when
+the service starts, as long as their driver is still loaded. It shows:
 
 - service state, scraped hosts and drivers (enabled/disabled);
 - counters for open, high/critical, acknowledged, resolved and false-positive events;
@@ -342,7 +349,8 @@ curl -s -X PATCH localhost:8088/events/<id> -H "$TOKEN" -H 'Content-Type: applic
 curl -s localhost:8088/metrics | grep ^cognitive_driver_
 ```
 
-Example `/predict` response with an anomaly (texts are generated in Portuguese):
+Example `/predict` response with an anomaly (`/predict` texts are in Portuguese;
+stored events also carry `translations.en`):
 
 ```json
 {

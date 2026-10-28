@@ -38,70 +38,76 @@
   </svg>
 
   <div class="app">
-    <aside class="sidebar" id="sidebar" aria-label="Navegação">
+    <aside class="sidebar" id="sidebar" aria-label="Navegação" data-i18n-aria="nav.aria">
       <div class="account">
         <img class="mark" src="icon.svg" alt="" width="26" height="26">
         <div class="account-text">
           <strong>Cognitive Driver</strong>
-          <span id="acct-sub">carregando…</span>
+          <span id="acct-sub" data-i18n="acct.loading">carregando…</span>
         </div>
         <svg class="ic muted"><use href="#i-updown"/></svg>
       </div>
 
       <button class="quick-search" id="quick-search" type="button">
         <svg class="ic"><use href="#i-search"/></svg>
-        <span>Busca rápida…</span>
+        <span data-i18n="quick.search">Busca rápida…</span>
         <kbd>Ctrl K</kbd>
       </button>
 
       <nav class="nav">
         <a class="nav-item active" href="#" data-nav="home">
-          <svg class="ic"><use href="#i-home"/></svg><span>Visão geral</span>
+          <svg class="ic"><use href="#i-home"/></svg><span data-i18n="nav.home">Visão geral</span>
         </a>
         <button class="nav-item" type="button" id="toggle-recent" aria-expanded="true">
-          <svg class="ic"><use href="#i-clock"/></svg><span>Recentes</span>
+          <svg class="ic"><use href="#i-clock"/></svg><span data-i18n="nav.recent">Recentes</span>
           <svg class="ic caret"><use href="#i-chev-down"/></svg>
         </button>
         <div class="subnav" id="nav-recent"></div>
         <a class="nav-item" href="#" data-nav="open">
-          <svg class="ic"><use href="#i-alert"/></svg><span>Eventos abertos</span><span class="badge" id="nav-open-count"></span>
+          <svg class="ic"><use href="#i-alert"/></svg><span data-i18n="nav.open">Eventos abertos</span><span class="badge" id="nav-open-count"></span>
         </a>
         <a class="nav-item" href="#" data-nav="all">
-          <svg class="ic"><use href="#i-check"/></svg><span>Histórico</span>
+          <svg class="ic"><use href="#i-check"/></svg><span data-i18n="nav.history">Histórico</span>
         </a>
 
-        <div class="nav-section">Drivers</div>
+        <div class="nav-section" data-i18n="nav.drivers">Drivers</div>
         <div id="nav-drivers"></div>
 
-        <div class="nav-section">Alvos de coleta</div>
+        <div class="nav-section" data-i18n="nav.targets">Alvos de coleta</div>
         <div id="nav-hosts"></div>
 
-        <div class="nav-section">Serviço</div>
+        <div class="nav-section" data-i18n="nav.service">Serviço</div>
         <a class="nav-item" href="../metrics" target="_blank" rel="noopener">
-          <svg class="ic"><use href="#i-activity"/></svg><span>Métricas Prometheus</span><svg class="ic tail"><use href="#i-external"/></svg>
+          <svg class="ic"><use href="#i-activity"/></svg><span data-i18n="nav.metrics">Métricas Prometheus</span><svg class="ic tail"><use href="#i-external"/></svg>
         </a>
         <a class="nav-item" href="../health" target="_blank" rel="noopener">
-          <svg class="ic"><use href="#i-heart"/></svg><span>Health check</span><svg class="ic tail"><use href="#i-external"/></svg>
+          <svg class="ic"><use href="#i-heart"/></svg><span data-i18n="nav.health">Health check</span><svg class="ic tail"><use href="#i-external"/></svg>
         </a>
       </nav>
 
       <div class="sidebar-foot">
         <svg class="ic"><use href="#i-shield"/></svg>
-        <span>Modo <strong>observe_only</strong></span>
+        <span><span data-i18n="foot.mode">Modo</span> <strong>observe_only</strong></span>
       </div>
     </aside>
     <div class="scrim" id="sidebar-scrim"></div>
 
     <div class="main-wrap">
       <header class="topbar">
-        <button class="icon-btn only-mobile" id="btn-menu" type="button" aria-label="Abrir menu">
+        <button class="icon-btn only-mobile" id="btn-menu" type="button" aria-label="Abrir menu" data-i18n-aria="menu.open">
           <svg class="ic"><use href="#i-menu"/></svg>
         </button>
         <span class="status-pill" id="service-status">—</span>
         <span class="muted small hide-mobile" id="last-refresh"></span>
         <div class="top-actions">
-          <button class="top-link" id="btn-refresh" type="button"><svg class="ic"><use href="#i-refresh"/></svg><span>Atualizar</span></button>
-          <button class="top-link" id="btn-token" type="button"><svg class="ic"><use href="#i-key"/></svg><span>Token</span></button>
+          <button class="top-link" id="btn-refresh" type="button"><svg class="ic"><use href="#i-refresh"/></svg><span data-i18n="top.refresh">Atualizar</span></button>
+          <button class="top-link" id="btn-token" type="button"><svg class="ic"><use href="#i-key"/></svg><span data-i18n="top.token">Token</span></button>
+          <label class="top-link lang-select"><svg class="ic"><use href="#i-globe"/></svg>
+            <select id="lang" aria-label="Idioma" data-i18n-aria="top.lang">
+              <option value="pt-BR">Português</option>
+              <option value="en">English</option>
+            </select>
+          </label>
         </div>
       </header>
 
@@ -110,28 +116,28 @@
 
         <div class="hero">
           <span class="hero-pill" id="hero-pill">
-            <span class="dot"></span><span id="hero-text">Conectando ao serviço…</span>
+            <span class="dot"></span><span id="hero-text" data-i18n="hero.connecting">Conectando ao serviço…</span>
           </span>
-          <h1>Recomendações para o seu time de SRE</h1>
+          <h1 data-i18n="hero.title">Recomendações para o seu time de SRE</h1>
         </div>
 
         <label class="search">
           <svg class="ic"><use href="#i-search"/></svg>
-          <input id="q" type="search" placeholder="Buscar por métrica, host, driver ou recomendação" autocomplete="off">
+          <input id="q" type="search" placeholder="Buscar por métrica, host, driver ou recomendação" data-i18n-placeholder="search.placeholder" autocomplete="off">
           <kbd>Ctrl</kbd><kbd>K</kbd>
         </label>
 
         <section class="columns">
           <div class="col">
-            <div class="col-head"><button class="col-title" type="button" data-nav="open">Abertos por severidade <svg class="ic"><use href="#i-chev"/></svg></button><svg class="ic muted"><use href="#i-dots"/></svg></div>
+            <div class="col-head"><button class="col-title" type="button" data-nav="open"><span data-i18n="col.severity">Abertos por severidade</span> <svg class="ic"><use href="#i-chev"/></svg></button><svg class="ic muted"><use href="#i-dots"/></svg></div>
             <div class="rows" id="col-severity"></div>
           </div>
           <div class="col">
-            <div class="col-head"><span class="col-title">Drivers <svg class="ic"><use href="#i-chev"/></svg></span><svg class="ic muted"><use href="#i-dots"/></svg></div>
+            <div class="col-head"><span class="col-title"><span data-i18n="col.drivers">Drivers</span> <svg class="ic"><use href="#i-chev"/></svg></span><svg class="ic muted"><use href="#i-dots"/></svg></div>
             <div class="rows" id="col-drivers"></div>
           </div>
           <div class="col">
-            <div class="col-head"><span class="col-title">Recentes</span><svg class="ic muted"><use href="#i-dots"/></svg></div>
+            <div class="col-head"><span class="col-title" data-i18n="col.recent">Recentes</span><svg class="ic muted"><use href="#i-dots"/></svg></div>
             <div class="rows" id="col-recent"></div>
           </div>
         </section>
@@ -139,78 +145,78 @@
         <section class="banner">
           <div class="banner-art" aria-hidden="true"><svg class="ic"><use href="#i-shield"/></svg></div>
           <div class="banner-body">
-            <h3>Nenhuma ação é executada automaticamente</h3>
-            <p>Os drivers operam em <strong>observe_only</strong>: observam, detectam, explicam e recomendam. As recomendações são sugestões para um operador humano; marque falsos positivos para melhorar a avaliação do modelo.</p>
+            <h3 data-i18n="banner.title">Nenhuma ação é executada automaticamente</h3>
+            <p><span data-i18n="banner.p1">Os drivers operam em</span> <strong>observe_only</strong><span data-i18n="banner.p2">: observam, detectam, explicam e recomendam. As recomendações são sugestões para um operador humano; marque falsos positivos para melhorar a avaliação do modelo.</span></p>
           </div>
-          <a class="btn primary" href="../metrics" target="_blank" rel="noopener">Ver métricas</a>
+          <a class="btn primary" href="../metrics" target="_blank" rel="noopener" data-i18n="banner.cta">Ver métricas</a>
         </section>
 
         <div class="section-head">
-          <h2>Resumo</h2>
-          <span class="outline-btn small" id="summary-scope">Últimos 500 eventos</span>
+          <h2 data-i18n="summary.title">Resumo</h2>
+          <span class="outline-btn small" id="summary-scope"></span>
         </div>
         <section class="kpis">
-          <div class="kpi"><div class="kpi-head"><span>Abertos</span><svg class="ic muted"><use href="#i-dots"/></svg></div><span class="kpi-value" id="kpi-open">–</span></div>
-          <div class="kpi"><div class="kpi-head"><span>Abertos high/critical</span><svg class="ic muted"><use href="#i-dots"/></svg></div><span class="kpi-value" id="kpi-severe">–</span></div>
-          <div class="kpi"><div class="kpi-head"><span>Reconhecidos</span><svg class="ic muted"><use href="#i-dots"/></svg></div><span class="kpi-value" id="kpi-ack">–</span></div>
-          <div class="kpi"><div class="kpi-head"><span>Resolvidos</span><svg class="ic muted"><use href="#i-dots"/></svg></div><span class="kpi-value" id="kpi-resolved">–</span></div>
-          <div class="kpi"><div class="kpi-head"><span>Falsos positivos</span><svg class="ic muted"><use href="#i-dots"/></svg></div><span class="kpi-value" id="kpi-fp">–</span></div>
+          <div class="kpi"><div class="kpi-head"><span data-i18n="kpi.open">Abertos</span><svg class="ic muted"><use href="#i-dots"/></svg></div><span class="kpi-value" id="kpi-open">–</span></div>
+          <div class="kpi"><div class="kpi-head"><span data-i18n="kpi.severe">Abertos high/critical</span><svg class="ic muted"><use href="#i-dots"/></svg></div><span class="kpi-value" id="kpi-severe">–</span></div>
+          <div class="kpi"><div class="kpi-head"><span data-i18n="kpi.ack">Reconhecidos</span><svg class="ic muted"><use href="#i-dots"/></svg></div><span class="kpi-value" id="kpi-ack">–</span></div>
+          <div class="kpi"><div class="kpi-head"><span data-i18n="kpi.resolved">Resolvidos</span><svg class="ic muted"><use href="#i-dots"/></svg></div><span class="kpi-value" id="kpi-resolved">–</span></div>
+          <div class="kpi"><div class="kpi-head"><span data-i18n="kpi.fp">Falsos positivos</span><svg class="ic muted"><use href="#i-dots"/></svg></div><span class="kpi-value" id="kpi-fp">–</span></div>
         </section>
 
         <div class="section-head" id="events-anchor">
-          <h2>Eventos</h2>
+          <h2 data-i18n="events.title">Eventos</h2>
           <div class="controls">
-            <label class="outline-btn select-btn"><span class="muted">Status</span>
-              <select id="f-status" aria-label="Status">
-                <option value="open">Abertos</option>
-                <option value="acknowledged">Reconhecidos</option>
-                <option value="resolved">Resolvidos</option>
-                <option value="false_positive">Falsos positivos</option>
-                <option value="">Todos</option>
+            <label class="outline-btn select-btn"><span class="muted" data-i18n="filter.status">Status</span>
+              <select id="f-status" aria-label="Status" data-i18n-aria="filter.status">
+                <option value="open" data-i18n="filter.open">Abertos</option>
+                <option value="acknowledged" data-i18n="filter.ack">Reconhecidos</option>
+                <option value="resolved" data-i18n="filter.resolved">Resolvidos</option>
+                <option value="false_positive" data-i18n="filter.fp">Falsos positivos</option>
+                <option value="" data-i18n="filter.allStatus">Todos</option>
               </select>
             </label>
-            <label class="outline-btn select-btn"><span class="muted">Severidade</span>
-              <select id="f-severity" aria-label="Severidade">
-                <option value="">Todas</option>
+            <label class="outline-btn select-btn"><span class="muted" data-i18n="filter.severity">Severidade</span>
+              <select id="f-severity" aria-label="Severidade" data-i18n-aria="filter.severity">
+                <option value="" data-i18n="filter.allSeverity">Todas</option>
                 <option value="critical">Critical</option>
                 <option value="high">High</option>
                 <option value="medium">Medium</option>
                 <option value="low">Low</option>
               </select>
             </label>
-            <button class="icon-btn bordered" id="btn-refresh-2" type="button" aria-label="Atualizar"><svg class="ic"><use href="#i-refresh"/></svg></button>
+            <button class="icon-btn bordered" id="btn-refresh-2" type="button" aria-label="Atualizar" data-i18n-aria="top.refresh"><svg class="ic"><use href="#i-refresh"/></svg></button>
           </div>
         </div>
         <div class="chips" id="active-filters"></div>
-        <section class="card event-list" id="event-list" role="list" aria-label="Eventos"></section>
-        <nav class="pager" id="event-pager" aria-label="Paginação dos eventos" hidden>
-          <button class="btn" id="pager-prev" type="button">Anterior</button>
+        <section class="card event-list" id="event-list" role="list" aria-label="Eventos" data-i18n-aria="events.title"></section>
+        <nav class="pager" id="event-pager" aria-label="Paginação dos eventos" data-i18n-aria="pager.aria" hidden>
+          <button class="btn" id="pager-prev" type="button" data-i18n="pager.prev">Anterior</button>
           <span class="muted small" id="pager-info" aria-live="polite"></span>
-          <button class="btn" id="pager-next" type="button">Próxima</button>
+          <button class="btn" id="pager-next" type="button" data-i18n="pager.next">Próxima</button>
         </nav>
       </main>
     </div>
   </div>
 
   <div class="scrim" id="drawer-scrim"></div>
-  <aside class="drawer" id="drawer" aria-label="Detalhe do evento" aria-hidden="true">
+  <aside class="drawer" id="drawer" aria-label="Detalhe do evento" data-i18n-aria="drawer.aria" aria-hidden="true">
     <div class="drawer-head">
-      <span class="crumbs muted small" id="drawer-crumbs">Eventos</span>
-      <button class="icon-btn" id="drawer-close" type="button" aria-label="Fechar"><svg class="ic"><use href="#i-x"/></svg></button>
+      <span class="crumbs muted small" id="drawer-crumbs" data-i18n="events.title">Eventos</span>
+      <button class="icon-btn" id="drawer-close" type="button" aria-label="Fechar" data-i18n-aria="drawer.close"><svg class="ic"><use href="#i-x"/></svg></button>
     </div>
     <div class="drawer-body" id="detail"></div>
   </aside>
 
   <dialog id="token-dialog">
     <form method="dialog" id="token-form">
-      <h2>Token de acesso</h2>
-      <p class="muted small">Valor da variável <code>MICRO_AI_TOKEN</code> do serviço. Fica salvo apenas neste navegador.</p>
+      <h2 data-i18n="token.title">Token de acesso</h2>
+      <p class="muted small"><span data-i18n="token.p1">Valor da variável</span> <code>MICRO_AI_TOKEN</code> <span data-i18n="token.p2">do serviço. Fica salvo apenas neste navegador.</span></p>
       <input type="password" id="token-input" autocomplete="off" placeholder="Bearer token" aria-label="Token">
-      <label class="check"><input type="checkbox" id="token-remember"> Lembrar neste navegador</label>
+      <label class="check"><input type="checkbox" id="token-remember"> <span data-i18n="token.remember">Lembrar neste navegador</span></label>
       <p class="error small" id="token-error" hidden></p>
       <div class="dialog-actions">
-        <button class="btn" value="cancel" formnovalidate>Cancelar</button>
-        <button class="btn primary" value="save">Salvar</button>
+        <button class="btn" value="cancel" formnovalidate data-i18n="token.cancel">Cancelar</button>
+        <button class="btn primary" value="save" data-i18n="token.save">Salvar</button>
       </div>
     </form>
   </dialog>
@@ -226,19 +232,19 @@
       <p class="muted small detail-meta"></p>
 
       <div class="callout">
-        <h3>Recomendação</h3>
+        <h3 data-i18n="detail.reco">Recomendação</h3>
         <p class="recommendation"></p>
       </div>
 
       <div class="card-sm owner-card" hidden>
-        <h3>Responsável provável</h3>
+        <h3 data-i18n="owner.title">Responsável provável</h3>
         <div class="owner-main">
           <strong class="owner-name"></strong>
           <span class="owner-value"></span>
         </div>
         <div class="owner-bar" role="img"><span></span></div>
         <table class="evidence owners">
-          <thead><tr><th>Processo</th><th>Consumo</th><th>Do total</th><th>Processos</th></tr></thead>
+          <thead><tr><th data-i18n="owner.process">Processo</th><th data-i18n="owner.usage">Consumo</th><th data-i18n="owner.share">Do total</th><th data-i18n="owner.procs">Processos</th></tr></thead>
           <tbody></tbody>
         </table>
         <p class="small muted owner-note"></p>
@@ -246,22 +252,22 @@
 
       <div class="card-sm">
         <div class="field">
-          <h3>O que foi observado</h3>
+          <h3 data-i18n="detail.observed">O que foi observado</h3>
           <p class="explanation"></p>
         </div>
         <div class="field">
-          <h3>Causa provável</h3>
+          <h3 data-i18n="detail.cause">Causa provável</h3>
           <p class="cause"></p>
         </div>
       </div>
 
       <div class="card-sm rule-card" hidden>
-        <h3>Regra violada</h3>
+        <h3 data-i18n="detail.rule">Regra violada</h3>
         <p class="rule-text"></p>
       </div>
 
       <div class="card-sm z-card">
-        <h3>Intensidade do desvio</h3>
+        <h3 data-i18n="detail.z">Intensidade do desvio</h3>
         <div class="zbar" role="img">
           <div class="zband b-none"></div><div class="zband b-low"></div><div class="zband b-medium"></div><div class="zband b-high"></div><div class="zband b-critical"></div>
           <div class="zmarker"></div>
@@ -270,28 +276,29 @@
       </div>
 
       <div class="card-sm evidence-card">
-        <h3>Evidências por janela</h3>
+        <h3 data-i18n="detail.evidence">Evidências por janela</h3>
         <table class="evidence">
-          <thead><tr><th>Janela</th><th>Média</th><th>Desvio</th><th>z-score</th></tr></thead>
+          <thead><tr><th data-i18n="detail.window">Janela</th><th data-i18n="detail.mean">Média</th><th data-i18n="detail.stddev">Desvio</th><th>z-score</th></tr></thead>
           <tbody></tbody>
         </table>
         <p class="small muted numbers"></p>
       </div>
 
       <div class="card-sm feedback">
-        <h3>Feedback do SRE</h3>
-        <textarea rows="3" placeholder="Ex.: backup noturno agendado, deploy da versão 2.3…" aria-label="Feedback"></textarea>
+        <h3 data-i18n="detail.feedback">Feedback do SRE</h3>
+        <textarea rows="3" placeholder="Ex.: backup noturno agendado, deploy da versão 2.3…" data-i18n-placeholder="detail.feedbackPlaceholder" aria-label="Feedback" data-i18n-aria="detail.feedback"></textarea>
         <div class="actions">
-          <button class="btn primary" data-status="acknowledged">Reconhecer</button>
-          <button class="btn" data-status="resolved">Resolver</button>
-          <button class="btn danger" data-status="false_positive">Falso positivo</button>
-          <button class="btn ghost" data-status="open">Reabrir</button>
+          <button class="btn primary" data-status="acknowledged" data-i18n="action.acknowledged">Reconhecer</button>
+          <button class="btn" data-status="resolved" data-i18n="action.resolved">Resolver</button>
+          <button class="btn danger" data-status="false_positive" data-i18n="action.false_positive">Falso positivo</button>
+          <button class="btn ghost" data-status="open" data-i18n="action.open">Reabrir</button>
         </div>
         <p class="small muted saved-feedback"></p>
       </div>
     </div>
   </template>
 
+  <script src="i18n.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

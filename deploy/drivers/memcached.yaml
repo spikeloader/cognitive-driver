@@ -16,6 +16,11 @@ drivers:
           down:
             cause: Memcached parado ou exporter sem acesso ao endereço configurado.
             recommendation: Verificar systemctl status memcached e o endereço (-l) e porta (-p) em /etc/memcached.conf.
+          en:
+            label: "Memcached available"
+            down:
+              cause: "Memcached stopped or the exporter cannot reach the configured address."
+              recommendation: "Check systemctl status memcached and the address (-l) and port (-p) in /etc/memcached.conf."
       # Conexões perto do limite (-c): novas conexões passam a ser recusadas.
       - name: memcached_current_connections
         alias: memcached_connections_ratio
@@ -27,6 +32,11 @@ drivers:
           up:
             cause: As conexões estão perto do limite -c (pico de clientes ou conexões persistentes sem reuso).
             recommendation: Revisar o pool dos clientes e aumentar -c em /etc/memcached.conf se a carga for legítima.
+          en:
+            label: "Memcached connections (share of the limit)"
+            up:
+              cause: "Connections are close to the -c limit (client spike or persistent connections not being reused)."
+              recommendation: "Review the clients' pools and raise -c in /etc/memcached.conf if the load is legitimate."
       # Itens despejados (LRU): memcached cheio por projeto, então só o desvio importa.
       - name: memcached_items_evicted_total
         min_stddev: 1
@@ -36,6 +46,11 @@ drivers:
           up:
             cause: O cache está sem espaço e despejando itens ainda úteis; a taxa de acerto cai e o banco recebe mais carga.
             recommendation: Comparar com a taxa de misses; avaliar mais memória (-m) ou itens menores.
+          en:
+            label: "Memcached evicted items"
+            up:
+              cause: "The cache is out of space and evicting items still in use; the hit rate drops and the database gets more load."
+              recommendation: "Compare with the miss rate; consider more memory (-m) or smaller items."
       - name: memcached_commands_total
         alias: memcached_get_misses
         match: {command: get, status: miss}
@@ -46,8 +61,13 @@ drivers:
           up:
             cause: Mais leituras sem acerto que o habitual (cache esvaziado, reinício, deploy que mudou as chaves).
             recommendation: Correlacionar com reinícios do memcached e deploys; acompanhar a carga no banco de origem.
+          en:
+            label: "Memcached GET misses"
+            up:
+              cause: "More reads without a hit than usual (cache emptied, restart, deploy that changed the keys)."
+              recommendation: "Correlate with memcached restarts and deploys; watch the load on the source database."
       - name: memcached_commands_total
-        describe: {label: Comandos do Memcached, unit: per_second}
+        describe: {label: Comandos do Memcached, unit: per_second, en: {label: "Memcached commands"}}
       - name: memcached_current_connections
         min_stddev: 5
-        describe: {label: Conexões abertas no Memcached, unit: count}
+        describe: {label: Conexões abertas no Memcached, unit: count, en: {label: "Memcached open connections"}}

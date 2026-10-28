@@ -16,6 +16,11 @@ drivers:
           down:
             cause: MySQL/MariaDB parado, sem aceitar conexões ou exporter sem permissão.
             recommendation: Verificar systemctl status mysql (ou mariadb), o log de erros e mysqladmin ping.
+          en:
+            label: "MySQL available"
+            down:
+              cause: "MySQL/MariaDB stopped, not accepting connections, or the exporter has no permission."
+              recommendation: "Check systemctl status mysql (or mariadb), the error log and mysqladmin ping."
       # Conexões em uso / max_connections.
       - name: mysql_global_status_threads_connected
         alias: mysql_connections_ratio
@@ -27,6 +32,11 @@ drivers:
           up:
             cause: As conexões estão perto do max_connections; novas conexões serão recusadas (Too many connections).
             recommendation: Ver SHOW PROCESSLIST agrupando por usuário e host, conexões em Sleep e o pool da aplicação.
+          en:
+            label: "MySQL connections (share of max_connections)"
+            up:
+              cause: "Connections are close to max_connections; new connections will be refused (Too many connections)."
+              recommendation: "Check SHOW PROCESSLIST grouped by user and host, connections in Sleep and the application's pool."
       # Threads executando ao mesmo tempo: picos indicam contenção (locks, I/O).
       - name: mysql_global_status_threads_running
         min_stddev: 3
@@ -36,6 +46,11 @@ drivers:
           up:
             cause: Muitas consultas simultâneas em execução (lock contention, consulta lenta em massa, pico de carga).
             recommendation: Ver SHOW FULL PROCESSLIST e performance_schema para consultas longas e esperas por lock.
+          en:
+            label: "MySQL running threads"
+            up:
+              cause: "Many queries running at the same time (lock contention, a slow query in bulk, a load spike)."
+              recommendation: "Check SHOW FULL PROCESSLIST and performance_schema for long queries and lock waits."
       - name: mysql_global_status_slow_queries
         type: counter
         min_stddev: 0.05
@@ -45,6 +60,11 @@ drivers:
           up:
             cause: Mais consultas acima de long_query_time que o habitual (falta de índice, plano ruim, contenção).
             recommendation: Ler o slow query log (pt-query-digest) e rodar EXPLAIN nas consultas mais frequentes.
+          en:
+            label: "MySQL slow queries"
+            up:
+              cause: "More queries above long_query_time than usual (missing index, bad plan, contention)."
+              recommendation: "Read the slow query log (pt-query-digest) and run EXPLAIN on the most frequent queries."
       # Falhas de conexão: senha errada, host não permitido, tentativas de força bruta.
       - name: mysql_global_status_aborted_connects
         type: counter
@@ -55,6 +75,11 @@ drivers:
           up:
             cause: Tentativas de conexão falhando (credencial errada após deploy, host sem permissão ou força bruta).
             recommendation: Ver o log de erros do MySQL e as origens; conferir credenciais das aplicações e o firewall da porta 3306.
+          en:
+            label: "MySQL aborted connections"
+            up:
+              cause: "Connection attempts failing (wrong credentials after a deploy, host not allowed or brute force)."
+              recommendation: "Check the MySQL error log and the sources; verify application credentials and the firewall for port 3306."
       - name: mysql_global_status_innodb_row_lock_waits
         type: counter
         min_stddev: 0.1
@@ -64,9 +89,14 @@ drivers:
           up:
             cause: Transações esperando locks de linha de outras transações (transações longas, hot rows).
             recommendation: Ver sys.innodb_lock_waits (ou information_schema) para bloqueadores e encurtar transações.
+          en:
+            label: "InnoDB row lock waits"
+            up:
+              cause: "Transactions waiting for row locks held by other transactions (long transactions, hot rows)."
+              recommendation: "Check sys.innodb_lock_waits (or information_schema) for the blockers and shorten transactions."
       - name: mysql_global_status_queries
         type: counter
-        describe: {label: Consultas do MySQL, unit: per_second}
+        describe: {label: Consultas do MySQL, unit: per_second, en: {label: "MySQL queries"}}
       # Replicação (as métricas só existem em réplicas).
       - name: mysql_slave_status_slave_io_running
         rule: {equals: 1, severity: critical}
@@ -76,6 +106,11 @@ drivers:
           down:
             cause: A réplica parou de receber o binlog do primário (rede, credencial, binlog removido).
             recommendation: Ver SHOW REPLICA STATUS (Last_IO_Error) e a conectividade com o primário.
+          en:
+            label: "MySQL replication I/O thread"
+            down:
+              cause: "The replica stopped receiving the binlog from the primary (network, credentials, binlog purged)."
+              recommendation: "Check SHOW REPLICA STATUS (Last_IO_Error) and connectivity to the primary."
       - name: mysql_slave_status_slave_sql_running
         rule: {equals: 1, severity: critical}
         describe:
@@ -84,6 +119,11 @@ drivers:
           down:
             cause: A réplica parou de aplicar eventos (erro de chave duplicada, tabela ausente).
             recommendation: Ver SHOW REPLICA STATUS (Last_SQL_Error) antes de pular eventos; a réplica pode estar divergente.
+          en:
+            label: "MySQL replication SQL thread"
+            down:
+              cause: "The replica stopped applying events (duplicate key error, missing table)."
+              recommendation: "Check SHOW REPLICA STATUS (Last_SQL_Error) before skipping events; the replica may have diverged."
       - name: mysql_slave_status_seconds_behind_master
         rule: {above: 300, severity: high}
         describe:
@@ -92,3 +132,8 @@ drivers:
           up:
             cause: A réplica está atrasada (I/O lento, consultas pesadas no primário, aplicação single-threaded).
             recommendation: Ver SHOW REPLICA STATUS e a carga da réplica; avaliar replica_parallel_workers.
+          en:
+            label: "MySQL replica lag"
+            up:
+              cause: "The replica is behind (slow I/O, heavy queries on the primary, single-threaded apply)."
+              recommendation: "Check SHOW REPLICA STATUS and the replica's load; consider replica_parallel_workers."

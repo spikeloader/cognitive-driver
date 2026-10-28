@@ -7,11 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"regexp"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/spikeloader/cognitive-driver/internal/anomaly"
 	"github.com/spikeloader/cognitive-driver/internal/attribution"
 	"github.com/spikeloader/cognitive-driver/internal/collector"
 	"github.com/spikeloader/cognitive-driver/internal/driver"
@@ -105,6 +108,62 @@ func responsible(ev store.Event) string {
 	return ""
 }
 
+// O resumo em português guarda a janela e as coletas seguidas, que não
+// têm coluna própria: "…baseline de 5m (média …), por 3 coletas consecutivas."
+var (
+	reWindow = regexp.MustCompile(`baseline de (\S+) \(`)
+	reStreak = regexp.MustCompile(`por (\d+) coletas consecutivas`)
+)
+
+// BackfillTranslations gera as traduções dos eventos gravados antes delas,
+// a partir dos números do evento. Eventos de drivers ou métricas que não
+// estão mais carregados ficam como estão. Retorna quantos foram traduzidos.
+func (r *Runner) BackfillTranslations(ctx context.Context) (int, error) {
+	evs, err := r.Store.Untranslated(ctx)
+	if err != nil {
+		return 0, err
+	}
+	byName := map[string]translator{}
+	for _, d := range r.Drivers {
+		if t, ok := d.(translator); ok {
+			byName[d.Info().Name] = t
+		}
+	}
+	n := 0
+	for _, e := range evs {
+		t, ok := byName[e.Driver]
+		if !ok {
+			continue
+		}
+		res := anomaly.Result{
+			Detector: e.Detector, Rule: e.Rule, Value: e.Value, Timestamp: e.Timestamp,
+			Mean: e.BaselineMean, StdDev: e.BaselineStddev, ZScore: e.ZScore, Score: e.Score,
+			Severity: anomaly.Severity(e.Severity), Anomalous: true,
+		}
+		if m := reWindow.FindStringSubmatch(e.Explanation); m != nil {
+			res.Window = m[1]
+		}
+		if m := reStreak.FindStringSubmatch(e.Explanation); m != nil {
+			res.Streak, _ = strconv.Atoi(m[1])
+		}
+		tr := t.Translate(driver.Anomaly{Driver: e.Driver, Host: e.Host, Metric: e.Metric, Result: res})
+		if len(tr) == 0 {
+			continue
+		}
+		js, _ := json.Marshal(tr)
+		if err := r.Store.SetTranslations(ctx, e.ID, js); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
+// translator gera os textos do evento em outros idiomas.
+type translator interface {
+	Translate(a driver.Anomaly) map[string]driver.Localized
+}
+
 // emitCanceler é implementado por drivers capazes de desfazer uma emissão.
 type emitCanceler interface {
 	CancelEmit(host, metric string)
@@ -161,6 +220,10 @@ func (r *Runner) evaluate(ctx context.Context, d driver.Driver, f feature.Featur
 		Status:         store.StatusOpen,
 		UpdatedAt:      now,
 	}
+	if t, ok := d.(translator); ok {
+		ev.Translations, _ = json.Marshal(t.Translate(a))
+	}
+
 	if r.Attributor != nil && a.Attribute != "" {
 		res, err := r.Attributor.Attribute(ctx, a.Host, a.Attribute)
 		if err != nil {

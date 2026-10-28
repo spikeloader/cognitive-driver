@@ -15,6 +15,12 @@ o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   ganham um usuário de monitoramento sem senha (autenticação pelo socket
   local) e com permissões só de leitura.
 
+- Painel e textos dos eventos em português e inglês: seletor de idioma no
+  topo (padrão pelo idioma do navegador), números e datas no formato do
+  idioma. Eventos gravam `translations.en` (rótulo, explicação, causa e
+  recomendação); catálogo de métricas em inglês e `describe.en` nos drivers.
+  Ao iniciar, o serviço gera as traduções dos eventos gravados antes delas.
+
 ### Corrigido
 - `enable-service.sh` dava a coleta como falha com exporters de saída grande
   (process-exporter): com `pipefail`, o `grep -q` encerrava o pipe e o `curl`

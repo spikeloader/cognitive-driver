@@ -72,3 +72,46 @@ func TestOverrideFromConfig(t *testing.T) {
 		t.Errorf("Describe do catálogo: %q %q", label, unit)
 	}
 }
+
+func TestExplainInEnglish(t *testing.T) {
+	r := anomaly.Result{Value: 0.41, Mean: 0.12, StdDev: 0.03, ZScore: 9.67, Streak: 3, Window: "5m"}
+	ex := ExplainIn(EN, "node_disk_io_time_seconds_total", r, nil)
+	want := "Disk I/O utilization at 41.0%, 9.7 standard deviations above the 5m baseline (mean 12.0%, stddev 3.0%), for 3 consecutive scrapes."
+	if ex.Summary != want {
+		t.Fatalf("resumo em inglês:\n  obtido   %q\n  esperado %q", ex.Summary, want)
+	}
+	if !strings.HasPrefix(ex.ProbableCause, "I/O pressure") || !strings.Contains(RecommendIn(EN, "node_disk_io_time_seconds_total", r, nil), "iotop") {
+		t.Errorf("causa/recomendação em inglês inesperadas: %q", ex.ProbableCause)
+	}
+	rule := anomaly.Result{Detector: anomaly.DetectorRule, Rule: "equals 1", Value: 0, Mean: 1}
+	if s := ExplainIn(EN, "nginx_up", rule, nil).Summary; s != "nginx availability at inactive (0); expected active (1)." {
+		t.Errorf("regra em inglês: %q", s)
+	}
+	if got := FormatIn(EN, "seconds", 3*86400); got != "3.0 days" {
+		t.Errorf("FormatIn(seconds) = %q", got)
+	}
+}
+
+func TestEnglishFallbacks(t *testing.T) {
+	r := anomaly.Result{Value: 10, Mean: 1, StdDev: 1, ZScore: 9, Window: "5m"}
+	// Sem catálogo nem describe: rótulo e textos genéricos em inglês.
+	ex := ExplainIn(EN, "custom_metric", r, nil)
+	if !strings.HasPrefix(ex.Summary, "Metric custom_metric at 10.000") || ex.ProbableCause != genericGuidanceEN.Cause {
+		t.Errorf("fallback em inglês: %+v", ex)
+	}
+	// describe só em português: o texto do YAML vale mais que o genérico.
+	pt := &Override{Label: "Fila do worker", Up: Guidance{Cause: "Fila crescendo."}}
+	if ex := ExplainIn(EN, "worker_queue", r, pt); !strings.HasPrefix(ex.Summary, "Fila do worker at") || ex.ProbableCause != "Fila crescendo." {
+		t.Errorf("describe em português como fallback: %+v", ex)
+	}
+	// describe.en tem prioridade.
+	pt.EN = &Translation{Label: "Worker queue", Up: Guidance{Cause: "Queue growing.", Recommendation: "Scale workers."}}
+	if ex := ExplainIn(EN, "worker_queue", r, pt); !strings.HasPrefix(ex.Summary, "Worker queue at") || ex.ProbableCause != "Queue growing." ||
+		RecommendIn(EN, "worker_queue", r, pt) != "Scale workers." {
+		t.Errorf("describe.en: %+v", ex)
+	}
+	// Português continua igual.
+	if ex := Explain("worker_queue", r, pt); !strings.HasPrefix(ex.Summary, "Fila do worker em 10,000") {
+		t.Errorf("português mudou: %q", ex.Summary)
+	}
+}

@@ -156,6 +156,12 @@ func run(configPath string) error {
 	if err := r.RestoreBaselines(ctx); err != nil {
 		log.Warn("baseline_restore_failed", "error", err)
 	}
+	// Eventos gravados antes das traduções ganham os textos em inglês.
+	if n, err := r.BackfillTranslations(ctx); err != nil {
+		log.Warn("translation_backfill_failed", "error", err)
+	} else if n > 0 {
+		log.Info("translation_backfill", "events", n)
+	}
 
 	token := os.Getenv(cfg.API.AuthTokenEnv)
 	if token == "" {

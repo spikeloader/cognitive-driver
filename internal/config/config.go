@@ -171,6 +171,15 @@ type Describe struct {
 	Unit  string   `yaml:"unit"`
 	Up    Guidance `yaml:"up"`
 	Down  Guidance `yaml:"down"`
+	// EN traz os mesmos textos em inglês (a unidade é a mesma).
+	EN *DescribeText `yaml:"en"`
+}
+
+// DescribeText são os textos de describe em outro idioma.
+type DescribeText struct {
+	Label string   `yaml:"label"`
+	Up    Guidance `yaml:"up"`
+	Down  Guidance `yaml:"down"`
 }
 
 type Guidance struct {

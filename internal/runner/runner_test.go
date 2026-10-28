@@ -328,6 +328,14 @@ func TestCronJobFailureOpensEventPerJob(t *testing.T) {
 	if !strings.Contains(e.Explanation, "app.sync") || !strings.Contains(e.Recommendation, "MAILTO") {
 		t.Errorf("explicação deveria citar o job e usar o describe: %q / %q", e.Explanation, e.Recommendation)
 	}
+	var tr map[string]driver.Localized
+	if err := json.Unmarshal(e.Translations, &tr); err != nil {
+		t.Fatalf("traduções ausentes: %q (%v)", e.Translations, err)
+	}
+	if en := tr["en"]; en.MetricLabel != "Cron job exit code · app.sync" || !strings.HasPrefix(en.Explanation, "Cron job exit code · app.sync at 2.0") ||
+		!strings.Contains(en.Recommendation, "MAILTO") {
+		t.Errorf("tradução do evento de cron: %+v", en)
+	}
 	// Contadores Prometheus usam a métrica base, sem o job.
 	if got := testutil.ToFloat64(m.Events.WithLabelValues("ai-cron-health", "cron_job_failed", "high")); got != 1 {
 		t.Errorf("events_total{metric=cron_job_failed}=%v, esperado 1", got)
@@ -423,4 +431,70 @@ func TestEventWithoutProcessExporterStillOpens(t *testing.T) {
 	if len(evs) != 1 || len(evs[0].Attribution) != 0 {
 		t.Fatalf("evento deveria abrir sem atribuição: %+v", evs)
 	}
+}
+
+// Um evento gravado antes das traduções recebe exatamente o texto que teria
+// sido gerado na emissão.
+func TestBackfillTranslationsMatchesEmission(t *testing.T) {
+	ctx := context.Background()
+	check := func(t *testing.T, r *Runner, st *store.Store) {
+		t.Helper()
+		evs, err := st.ListEvents(ctx, store.Filter{})
+		if err != nil || len(evs) != 1 {
+			t.Fatalf("esperado 1 evento, obtido %d (%v)", len(evs), err)
+		}
+		original := string(evs[0].Translations)
+		if original == "" {
+			t.Fatal("evento novo deveria ter traduções")
+		}
+		if err := st.SetTranslations(ctx, evs[0].ID, nil); err != nil { // simula evento antigo
+			t.Fatal(err)
+		}
+		n, err := r.BackfillTranslations(ctx)
+		if err != nil || n != 1 {
+			t.Fatalf("backfill: n=%d err=%v", n, err)
+		}
+		got, _ := st.GetEvent(ctx, evs[0].ID)
+		if string(got.Translations) != original {
+			t.Fatalf("tradução retroativa difere:\n  obtida   %s\n  original %s", got.Translations, original)
+		}
+		if n, _ := r.BackfillTranslations(ctx); n != 0 {
+			t.Errorf("segunda execução não deveria traduzir nada, traduziu %d", n)
+		}
+	}
+
+	t.Run("estatística", func(t *testing.T) {
+		r, st, _ := newRunner(t, cpuSpike(60))
+		for range 63 {
+			r.Tick(ctx)
+		}
+		check(t, r, st)
+	})
+	t.Run("regra com grupo", func(t *testing.T) {
+		data, err := os.ReadFile(filepath.Join("..", "..", "deploy", "drivers", "cron.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := config.Parse(append([]byte("collector:\n  targets: [{host: node-1, url: \"http://unused:9100/metrics\"}]\n"), data...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := &fakeCron{ts: time.Unix(1_700_000_000, 0), syncExit: 2}
+		r, st, _ := newRunner(t, c)
+		r.Drivers = []driver.Driver{driver.NewStatistical(cfg.Drivers[0], cfg.Collector.Interval)}
+		for range 3 {
+			r.Tick(ctx)
+		}
+		check(t, r, st)
+	})
+	t.Run("driver não carregado", func(t *testing.T) {
+		r, st, _ := newRunner(t, cpuSpike(60))
+		if err := st.InsertEvent(ctx, store.Event{ID: "x", Timestamp: time.Now(), Host: "h", Driver: "ai-removido",
+			Metric: "m", Severity: "low", Status: store.StatusOpen, UpdatedAt: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+		if n, err := r.BackfillTranslations(ctx); err != nil || n != 0 {
+			t.Fatalf("evento de driver ausente deveria ficar como está: n=%d err=%v", n, err)
+		}
+	})
 }

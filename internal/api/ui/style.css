@@ -132,6 +132,10 @@ kbd { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--mu
 .top-link { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: var(--text); font: inherit; font-weight: 500; cursor: pointer; }
 .top-link:hover { background: var(--surface-2); }
 .top-link:disabled { opacity: .5; cursor: progress; }
+.lang-select { padding-right: 4px; }
+.lang-select select { border: 0; background: none; color: inherit; font: inherit; font-weight: 500; cursor: pointer; padding: 0 2px; }
+.lang-select:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lang-select select:focus { outline: none; }
 .status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; border: 1px solid var(--border); }
 .status-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .status-pill.ok::before { background: var(--ok); }

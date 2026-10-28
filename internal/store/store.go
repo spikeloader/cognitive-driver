@@ -73,6 +73,10 @@ type Event struct {
 	// Attribution aponta os processos que mais consumiam o recurso no
 	// momento da observação de pico (attribution.Result em JSON).
 	Attribution json.RawMessage `json:"attribution,omitempty"`
+	// Translations traz rótulo e textos em outros idiomas, por código
+	// ({"en": {"metric_label", "explanation", "probable_cause", "recommendation"}}).
+	// Os campos principais ficam em português.
+	Translations json.RawMessage `json:"translations,omitempty"`
 }
 
 type Store struct {
@@ -141,6 +145,7 @@ var addedColumns = []struct{ name, def string }{
 	{"last_seen", "TEXT NOT NULL DEFAULT ''"},
 	{"occurrences", "INTEGER NOT NULL DEFAULT 1"},
 	{"attribution", "TEXT NOT NULL DEFAULT ''"},
+	{"translations", "TEXT NOT NULL DEFAULT ''"},
 }
 
 func migrate(db *sql.DB) error {
@@ -254,13 +259,14 @@ func insertEvent(ctx context.Context, db execer, e Event) error {
 	_, err := db.ExecContext(ctx, `INSERT INTO events (
 		id, timestamp, host, driver, driver_version, mode, metric, metric_label, unit, detector, rule, value,
 		baseline_mean, baseline_stddev, zscore, score, severity, explanation,
-		probable_cause, recommendation, evidence, status, feedback, updated_at, last_seen, occurrences, attribution
-	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		probable_cause, recommendation, evidence, status, feedback, updated_at, last_seen, occurrences, attribution,
+		translations
+	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		e.ID, e.Timestamp.UTC().Format(tsLayout), e.Host, e.Driver, e.DriverVersion, e.Mode,
 		e.Metric, e.MetricLabel, e.Unit, detectorOrDefault(e.Detector), e.Rule, e.Value, e.BaselineMean, e.BaselineStddev, e.ZScore, e.Score, e.Severity,
 		e.Explanation, e.ProbableCause, e.Recommendation, string(e.Evidence), e.Status,
 		e.Feedback, e.UpdatedAt.UTC().Format(tsLayout), e.LastSeen.UTC().Format(tsLayout), e.Occurrences,
-		string(e.Attribution))
+		string(e.Attribution), string(e.Translations))
 	return err
 }
 
@@ -311,12 +317,12 @@ func (s *Store) RecordEvent(ctx context.Context, e Event) (Event, bool, error) {
 		driver_version = ?, mode = ?, metric_label = ?, unit = ?, detector = ?, rule = ?, value = ?,
 		baseline_mean = ?, baseline_stddev = ?, zscore = ?, score = ?, severity = ?, explanation = ?,
 		probable_cause = ?, recommendation = ?, evidence = ?, updated_at = ?, last_seen = ?, occurrences = ?,
-		attribution = ?
+		attribution = ?, translations = ?
 		WHERE id = ?`,
 		out.DriverVersion, out.Mode, out.MetricLabel, out.Unit, detectorOrDefault(out.Detector), out.Rule, out.Value,
 		out.BaselineMean, out.BaselineStddev, out.ZScore, out.Score, out.Severity, out.Explanation,
 		out.ProbableCause, out.Recommendation, string(out.Evidence), out.UpdatedAt.UTC().Format(tsLayout),
-		out.LastSeen.UTC().Format(tsLayout), out.Occurrences, string(out.Attribution), out.ID)
+		out.LastSeen.UTC().Format(tsLayout), out.Occurrences, string(out.Attribution), string(out.Translations), out.ID)
 	if err != nil {
 		return e, false, err
 	}
@@ -332,15 +338,16 @@ func detectorOrDefault(d string) string {
 
 const eventColumns = `id, timestamp, host, driver, driver_version, mode, metric, metric_label, unit, detector, rule, value,
 	baseline_mean, baseline_stddev, zscore, score, severity, explanation,
-	probable_cause, recommendation, evidence, status, feedback, updated_at, last_seen, occurrences, attribution`
+	probable_cause, recommendation, evidence, status, feedback, updated_at, last_seen, occurrences, attribution,
+	translations`
 
 func scanEvent(row interface{ Scan(...any) error }) (Event, error) {
 	var e Event
-	var ts, updated, lastSeen, evidence, attribution string
+	var ts, updated, lastSeen, evidence, attribution, translations string
 	err := row.Scan(&e.ID, &ts, &e.Host, &e.Driver, &e.DriverVersion, &e.Mode, &e.Metric,
 		&e.MetricLabel, &e.Unit, &e.Detector, &e.Rule, &e.Value, &e.BaselineMean, &e.BaselineStddev, &e.ZScore, &e.Score, &e.Severity,
 		&e.Explanation, &e.ProbableCause, &e.Recommendation, &evidence, &e.Status,
-		&e.Feedback, &updated, &lastSeen, &e.Occurrences, &attribution)
+		&e.Feedback, &updated, &lastSeen, &e.Occurrences, &attribution, &translations)
 	if err != nil {
 		return e, err
 	}
@@ -353,6 +360,9 @@ func scanEvent(row interface{ Scan(...any) error }) (Event, error) {
 	e.Evidence = json.RawMessage(evidence)
 	if attribution != "" {
 		e.Attribution = json.RawMessage(attribution)
+	}
+	if translations != "" {
+		e.Translations = json.RawMessage(translations)
 	}
 	return e, nil
 }
@@ -454,6 +464,30 @@ func (s *Store) UpdateEvent(ctx context.Context, id, status, feedback string, at
 		return before, after, err
 	}
 	return before, after, tx.Commit()
+}
+
+// Untranslated lista os eventos gravados antes das traduções.
+func (s *Store) Untranslated(ctx context.Context) ([]Event, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+eventColumns+` FROM events WHERE translations = ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Event
+	for rows.Next() {
+		e, err := scanEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// SetTranslations grava as traduções de um evento sem alterar mais nada.
+func (s *Store) SetTranslations(ctx context.Context, id string, tr json.RawMessage) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE events SET translations = ? WHERE id = ?`, string(tr), id)
+	return err
 }
 
 // Baseline é o estado serializado de um detector.

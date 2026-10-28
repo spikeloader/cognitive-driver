@@ -16,6 +16,11 @@ drivers:
           down:
             cause: PostgreSQL parado, sem aceitar conexões (max_connections, recovery) ou exporter sem permissão (pg_hba.conf).
             recommendation: Verificar systemctl status postgresql, o log em /var/log/postgresql/ e pg_isready.
+          en:
+            label: "PostgreSQL available"
+            down:
+              cause: "PostgreSQL stopped, not accepting connections (max_connections, recovery) or the exporter has no permission (pg_hba.conf)."
+              recommendation: "Check systemctl status postgresql, the log in /var/log/postgresql/ and pg_isready."
       # Conexões em uso / max_connections.
       - name: pg_stat_database_numbackends
         alias: pg_connections_ratio
@@ -27,6 +32,11 @@ drivers:
           up:
             cause: As conexões estão perto do max_connections; novas conexões serão recusadas (FATAL too many connections).
             recommendation: Ver pg_stat_activity agrupando por usuário, aplicação e estado (idle in transaction); usar um pooler (PgBouncer) se a carga for legítima.
+          en:
+            label: "PostgreSQL connections (share of max_connections)"
+            up:
+              cause: "Connections are close to max_connections; new connections will be refused (FATAL too many connections)."
+              recommendation: "Check pg_stat_activity grouped by user, application and state (idle in transaction); use a pooler (PgBouncer) if the load is legitimate."
       # Deadlocks por banco.
       - name: pg_stat_database_deadlocks
         type: counter
@@ -39,6 +49,11 @@ drivers:
           up:
             cause: Transações concorrentes bloquearam umas às outras e uma foi abortada.
             recommendation: Ver o log (com log_lock_waits) para as consultas envolvidas e padronizar a ordem de acesso às linhas/tabelas.
+          en:
+            label: "PostgreSQL deadlocks"
+            up:
+              cause: "Concurrent transactions blocked each other and one was aborted."
+              recommendation: "Check the log (with log_lock_waits) for the queries involved and make the order in which rows/tables are accessed consistent."
       # Rollbacks por banco: aumento indica erros na aplicação.
       - name: pg_stat_database_xact_rollback
         type: counter
@@ -51,12 +66,17 @@ drivers:
           up:
             cause: Mais transações abortadas que o habitual (erros de constraint, timeouts, deadlocks, deploy com bug).
             recommendation: Ver os erros no log do PostgreSQL e da aplicação no mesmo período.
+          en:
+            label: "PostgreSQL rollbacks"
+            up:
+              cause: "More aborted transactions than usual (constraint errors, timeouts, deadlocks, a buggy deploy)."
+              recommendation: "Check the errors in the PostgreSQL and application logs for the same period."
       # Transações confirmadas por segundo (tráfego).
       - name: pg_stat_database_xact_commit
         type: counter
         alias: pg_transactions
         exclude: {datname: "template.*"}
-        describe: {label: Transações do PostgreSQL, unit: per_second}
+        describe: {label: Transações do PostgreSQL, unit: per_second, en: {label: "PostgreSQL transactions"}}
       # Consultas que transbordam para disco (work_mem insuficiente).
       - name: pg_stat_database_temp_bytes
         type: counter
@@ -69,10 +89,15 @@ drivers:
           up:
             cause: Ordenações e hashes maiores que work_mem estão sendo gravados em disco, deixando consultas lentas.
             recommendation: Ativar log_temp_files e ver as consultas responsáveis (pg_stat_statements); avaliar índices ou work_mem por sessão.
+          en:
+            label: "PostgreSQL temporary files"
+            up:
+              cause: "Sorts and hashes larger than work_mem are being written to disk, making queries slow."
+              recommendation: "Enable log_temp_files and find the responsible queries (pg_stat_statements); consider indexes or a per-session work_mem."
       - name: pg_stat_database_numbackends
         alias: pg_connections
         min_stddev: 5
-        describe: {label: Conexões abertas no PostgreSQL, unit: count}
+        describe: {label: Conexões abertas no PostgreSQL, unit: count, en: {label: "PostgreSQL open connections"}}
       # Atraso da réplica (a métrica só tem valor em réplicas).
       - name: pg_replication_lag_seconds
         rule: {above: 300, severity: high}
@@ -82,3 +107,8 @@ drivers:
           up:
             cause: A réplica está atrasada em relação ao primário (rede, I/O da réplica ou consultas longas bloqueando o replay).
             recommendation: Ver pg_stat_replication no primário e pg_stat_wal_receiver na réplica; checar consultas longas na réplica.
+          en:
+            label: "PostgreSQL replica lag"
+            up:
+              cause: "The replica is behind the primary (network, replica I/O or long queries blocking replay)."
+              recommendation: "Check pg_stat_replication on the primary and pg_stat_wal_receiver on the replica; look for long queries on the replica."

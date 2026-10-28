@@ -21,6 +21,11 @@ drivers:
           up:
             cause: Quase todos os workers estão ocupados (pico de carga ou código bloqueante dentro de corrotinas).
             recommendation: Procurar chamadas bloqueantes (I/O sem hook de corrotina, sleep), ver a latência das dependências e ajustar worker_num.
+          en:
+            label: "Swoole worker utilization"
+            up:
+              cause: "Almost all workers are busy (load spike or blocking code inside coroutines)."
+              recommendation: "Look for blocking calls (I/O without coroutine hooks, sleep), check dependency latency and adjust worker_num."
       # Conexões abertas (pico de clientes, conexões que não fecham).
       - name: swoole_connections
         group_by: [server]
@@ -28,12 +33,16 @@ drivers:
         describe:
           label: Conexões abertas no Swoole
           unit: count
+          en:
+            label: "Swoole open connections"
       # Requisições por segundo.
       - name: swoole_requests_total
         group_by: [server]
         describe:
           label: Requisições do Swoole
           unit: per_second
+          en:
+            label: "Swoole requests"
       # Corrotinas vivas: crescimento contínuo indica vazamento.
       - name: swoole_coroutines
         group_by: [server]
@@ -44,6 +53,11 @@ drivers:
           up:
             cause: "Corrotinas acumulando (espera por I/O lento ou vazamento de corrotinas que nunca terminam)."
             recommendation: Comparar com o tráfego; se crescer sem relação com as requisições, inspecionar com Coroutine::list() e backtraces.
+          en:
+            label: "Swoole active coroutines"
+            up:
+              cause: "Coroutines piling up (waiting on slow I/O or leaking coroutines that never finish)."
+              recommendation: "Compare with traffic; if it grows regardless of requests, inspect with Coroutine::list() and backtraces."
       # Tarefas aguardando task workers.
       - name: swoole_task_queue
         group_by: [server]
@@ -54,3 +68,8 @@ drivers:
           up:
             cause: Os task workers não dão conta das tasks enviadas.
             recommendation: Ver a duração das tasks e aumentar task_worker_num se a carga for legítima.
+          en:
+            label: "Swoole task queue"
+            up:
+              cause: "Task workers cannot keep up with the tasks being sent."
+              recommendation: "Check task duration and raise task_worker_num if the load is legitimate."

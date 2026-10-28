@@ -170,10 +170,13 @@ sudo scripts/enable-service.sh processes --listen 0.0.0.0:9256 # host coletado p
   Tráfego de rede não é atribuído (o exporter não tem rede por processo).
 - Se o process-exporter estiver indisponível, o evento abre mesmo assim,
   sem responsável.
-- Eventos de disco precisam de `--with-io`: o kernel só expõe o
-  `/proc/<pid>/io` de processos de outros usuários com `CAP_SYS_PTRACE`, que
-  essa opção concede ao process-exporter (opcional, porque amplia o que o
-  exporter pode ler). Sem ela, eventos de CPU e memória têm responsável e os
+- Eventos de disco precisam de `--with-io`. O `/proc/<pid>/io` só é
+  legível pelo dono do processo, então lê-lo para outros usuários exige
+  `CAP_DAC_READ_SEARCH` (permissão do arquivo) e `CAP_SYS_PTRACE` (checagem
+  de ptrace do kernel). A opção concede as duas ao process-exporter dentro de
+  um sandbox (sistema de arquivos somente leitura, sem `/home`, `/root`,
+  `/etc/shadow`, `/etc/ssh` nem sudoers). É opcional porque amplia o que o
+  exporter pode ler. Sem ela, eventos de CPU e memória têm responsável e os
   de disco não.
 
 ### PHP
@@ -246,7 +249,8 @@ Campos de métrica: `match`/`exclude` (regex de labels), `type`
 `group_by` (uma feature e um evento por valor dos labels, ex.: `[job]`,
 `[pool]`, em vez de somar as séries), `subtract`/`divide_by` (derivadas),
 `attribute` (`cpu`/`memory`/`io`/`none`: recurso usado para indicar o
-processo responsável), `rule`
+processo responsável), `describe.en` (os mesmos textos `label`/`up`/`down`
+em inglês, usados pelo painel em inglês), `rule`
 (`above`/`below`/`equals` + `severity`), `min_stddev` (piso absoluto do
 desvio, útil em contagens pequenas) e `describe` (`label`, `unit` —
 cores, bytes, bytes_per_second, ratio, per_second, count, milliseconds,
@@ -257,7 +261,11 @@ seconds, bool — e causa/recomendação para `up`/`down`). Valide com
 
 Acesse **http://127.0.0.1:8088/** (redireciona para `/ui/`). O painel vem
 embutido no binário, não carrega nada de origens externas e consome apenas
-`/health` e `/events` deste serviço. Ele mostra:
+`/health` e `/events` deste serviço. Está em português e inglês (seletor no
+topo, lembrado por navegador; o padrão segue o idioma do navegador). Os
+eventos gravam explicação, causa e recomendação nos dois idiomas; eventos
+anteriores às traduções as recebem quando o serviço inicia, se o driver
+deles ainda estiver carregado. Ele mostra:
 
 - estado do serviço, hosts coletados e drivers (habilitados/desabilitados);
 - contadores de eventos abertos, high/critical, reconhecidos, resolvidos e falsos positivos;

@@ -21,6 +21,11 @@ drivers:
           up:
             cause: O script terminou com erro (exceção, dependência indisponível, permissão, timeout interno).
             recommendation: Ver a saída do job (MAILTO, log do script ou journalctl -t CRON) e reexecutar manualmente com o usuário do crontab.
+          en:
+            label: "Cron job exit code"
+            up:
+              cause: "The script exited with an error (exception, unavailable dependency, permission, internal timeout)."
+              recommendation: "Check the job output (MAILTO, the script log or journalctl -t CRON) and rerun it manually as the crontab user."
       # Tempo desde o último início em relação ao intervalo esperado: acima
       # de 2 o cron deixou de executar o job ao menos duas vezes.
       - name: cron_job_last_run_timestamp_seconds
@@ -35,6 +40,11 @@ drivers:
           up:
             cause: O cron não está iniciando o job (daemon parado, linha removida ou comentada, arquivo em /etc/cron.d com permissão ou nome inválido).
             recommendation: Verificar systemctl status cron, a linha em /etc/cron.d e grep CRON /var/log/syslog. Se o job foi removido de propósito, apagar o cron_<job>.prom do textfile collector.
+          en:
+            label: "Time since the cron job last ran (share of the interval)"
+            up:
+              cause: "Cron is not starting the job (daemon stopped, line removed or commented out, file in /etc/cron.d with an invalid name or permission)."
+              recommendation: "Check systemctl status cron, the line in /etc/cron.d and grep CRON /var/log/syslog. If the job was removed on purpose, delete its cron_<job>.prom from the textfile collector."
       # Execução atual dura mais que o intervalo: travou ou vai se sobrepor à próxima.
       - name: cron_job_running_since_timestamp_seconds
         type: timestamp
@@ -48,6 +58,11 @@ drivers:
           up:
             cause: O job está travado (lock, rede, banco) ou ficou mais lento que o próprio agendamento, e as execuções vão se sobrepor.
             recommendation: Localizar o processo (ps -ef --forest), ver em que está bloqueado (strace -p, lsof -p) e considerar flock -n na linha do cron para evitar sobreposição.
+          en:
+            label: "Running cron job (share of the interval)"
+            up:
+              cause: "The job is stuck (lock, network, database) or became slower than its own schedule, and runs will overlap."
+              recommendation: "Find the process (ps -ef --forest), see what it is blocked on (strace -p, lsof -p) and consider flock -n in the cron line to avoid overlaps."
       # A última execução ocupou quase todo o intervalo.
       - name: cron_job_last_duration_seconds
         alias: cron_job_duration_ratio
@@ -60,3 +75,8 @@ drivers:
           up:
             cause: O volume processado pelo job cresceu ou uma dependência ficou lenta; logo ele não caberá no intervalo.
             recommendation: Comparar a duração com execuções anteriores, revisar consultas e lotes do script ou espaçar o agendamento.
+          en:
+            label: "Cron job duration (share of the interval)"
+            up:
+              cause: "The volume the job processes grew or a dependency got slower; soon it will not fit in its interval."
+              recommendation: "Compare the duration with previous runs, review the script's queries and batches or space out the schedule."
