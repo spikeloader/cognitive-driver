@@ -27,7 +27,7 @@ node_exporter → Collector → Feature Engine → Anomaly Engine → Explanatio
 - **One binary, no external services**: SQLite for events and baselines, web
   UI embedded; about 22 MB RSS with the host and Docker drivers.
 - **Drivers in YAML**: host, nginx, Apache, Docker, PHP-FPM, Swoole, cron
-  jobs, Redis, Memcached, PostgreSQL and MySQL ship ready to use; any
+  jobs, Redis, Memcached, PostgreSQL, MySQL and Kubernetes ship ready to use; any
   Prometheus exporter becomes a driver without code.
 
 > **Languages:** the web UI and the event texts (explanation, probable cause,
@@ -106,7 +106,7 @@ make run         # build + run locally with configs/config.yaml (state in ./data
 make dist        # release packages in dist/ (linux amd64/arm64 + SHA256SUMS)
 ```
 
-## Monitored services (nginx, Apache, Docker, PHP, cron, Redis, Memcached, PostgreSQL, MySQL)
+## Monitored services (nginx, Apache, Docker, PHP, cron, Redis, Memcached, PostgreSQL, MySQL, Kubernetes)
 
 Besides the host (CPU, memory, disk, network via node_exporter), each service
 has its own driver that reads the service's exporter. One command enables it:
@@ -125,6 +125,7 @@ sudo scripts/enable-service.sh redis     # prometheus-redis-exporter (REDIS_PASS
 sudo scripts/enable-service.sh memcached # requires memcached_exporter on 127.0.0.1:9150
 sudo scripts/enable-service.sh postgresql # prometheus-postgres-exporter + passwordless "prometheus" role (pg_monitor, peer)
 sudo scripts/enable-service.sh mysql     # prometheus-mysqld-exporter + prometheus@localhost (socket auth, read-only grants)
+sudo scripts/enable-service.sh kubernetes # kube-state-metrics found via kubectl (or --ksm-url URL); one node per cluster
 sudo scripts/enable-service.sh nginx --disable   # remove the driver
 ```
 
@@ -160,6 +161,9 @@ sudo scripts/enable-service.sh nginx --disable   # remove the driver
 | `ai-mysql-health` | MySQL/MariaDB down; replication IO/SQL thread stopped | rule · critical |
 | | connections > 90% of `max_connections`; replica lag > 5 min | rule · high |
 | | running threads, slow queries, aborted connects, InnoDB row lock waits and queries/s off baseline | statistical |
+| `ai-kubernetes-health` | node NotReady; Deployment below its minimum available replicas; PVC lost | rule · critical |
+| (per node, namespace or Deployment) | node under memory/disk/PID pressure; containers in CrashLoopBackOff, failing to pull the image or to be created; unschedulable pods; stuck rollout | rule · high |
+| | container restarts (per namespace), running, pending and failed pods and failed Jobs off baseline | statistical |
 
 **Rules** fire without a baseline (after `consecutive_points` scrapes) and
 cover unambiguous states; **statistical detection** learns each metric's
@@ -411,7 +415,7 @@ internal/api/             HTTP/JSON endpoints
 internal/api/ui/          web UI (HTML/CSS/JS embedded via go:embed)
 deploy/systemd/           sandboxed unit with limits
 deploy/drivers/           driver templates per service (nginx, apache, docker, php-fpm, swoole, cron,
-                          redis, memcached, postgresql, mysql)
+                          redis, memcached, postgresql, mysql, kubernetes)
 deploy/cron/cron-wrap     cron job wrapper (metrics into the textfile collector)
 deploy/swoole/metrics.php Swoole/OpenSwoole metrics for the application's /metrics
 scripts/                  install.sh, uninstall.sh, enable-service.sh, wrap-cron-d.sh, validate-e2e.sh

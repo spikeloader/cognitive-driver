@@ -374,7 +374,7 @@ function navFilterItem(label, dot, count, key, value) {
 
 function driverIcon(name) {
   if (/nginx|apache|http|web/.test(name)) return "globe";
-  if (/docker|container/.test(name)) return "box";
+  if (/docker|container|kubernetes/.test(name)) return "box";
   if (/disk/.test(name)) return "server";
   return "cpu";
 }

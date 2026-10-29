@@ -86,7 +86,7 @@ make run         # build + execução local com configs/config.yaml (data em ./d
 make dist        # pacotes de release em dist/ (linux amd64/arm64 + SHA256SUMS)
 ```
 
-## Serviços monitorados (nginx, Apache, Docker, PHP, cron, Redis, Memcached, PostgreSQL, MySQL)
+## Serviços monitorados (nginx, Apache, Docker, PHP, cron, Redis, Memcached, PostgreSQL, MySQL, Kubernetes)
 
 Além do host (CPU, memória, disco, rede via node_exporter), cada serviço tem
 um driver próprio que lê o exporter do serviço. Ative com um comando; o
@@ -105,6 +105,7 @@ sudo scripts/enable-service.sh redis     # prometheus-redis-exporter (REDIS_PASS
 sudo scripts/enable-service.sh memcached # exige o memcached_exporter em 127.0.0.1:9150
 sudo scripts/enable-service.sh postgresql # prometheus-postgres-exporter + role "prometheus" sem senha (pg_monitor, peer)
 sudo scripts/enable-service.sh mysql     # prometheus-mysqld-exporter + prometheus@localhost (auth por socket, só leitura)
+sudo scripts/enable-service.sh kubernetes # kube-state-metrics descoberto pelo kubectl (ou --ksm-url URL); um nó por cluster
 sudo scripts/enable-service.sh nginx --disable   # remove o driver
 ```
 
@@ -140,6 +141,9 @@ sudo scripts/enable-service.sh nginx --disable   # remove o driver
 | `ai-mysql-health` | MySQL/MariaDB fora do ar; thread de IO/SQL da replicação parada | regra · critical |
 | | conexões > 90% do `max_connections`; atraso da réplica > 5 min | regra · high |
 | | threads em execução, consultas lentas, conexões abortadas, esperas por lock do InnoDB e consultas/s fora do padrão | estatística |
+| `ai-kubernetes-health` | nó NotReady; Deployment abaixo do mínimo de réplicas disponíveis; PVC com volume perdido | regra · critical |
+| (por nó, namespace ou Deployment) | nó com pressão de memória/disco/PIDs; containers em CrashLoopBackOff, sem baixar a imagem ou sem conseguir ser criados; pods sem nó disponível; rollout travado | regra · high |
+| | reinícios de container (por namespace), pods em execução, pendentes e com falha e Jobs com falha fora do padrão | estatística |
 
 **Regras** disparam sem baseline (após `consecutive_points` coletas) e
 servem para estados inequívocos; a **detecção estatística** aprende o padrão
@@ -392,7 +396,7 @@ internal/api/             endpoints HTTP/JSON
 internal/api/ui/          painel web (HTML/CSS/JS embutidos via go:embed)
 deploy/systemd/           unit com sandbox e limites
 deploy/drivers/           modelos de driver por serviço (nginx, apache, docker, php-fpm, swoole, cron,
-                          redis, memcached, postgresql, mysql)
+                          redis, memcached, postgresql, mysql, kubernetes)
 deploy/cron/cron-wrap     wrapper dos jobs de cron (métricas no textfile collector)
 deploy/swoole/metrics.php métricas do Swoole/OpenSwoole para o /metrics da aplicação
 scripts/                  install.sh, uninstall.sh, enable-service.sh, wrap-cron-d.sh, validate-e2e.sh

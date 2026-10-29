@@ -4,8 +4,8 @@
 #
 # Uso: sudo scripts/enable-service.sh <serviço> [opções]
 #   serviços: nginx apache docker php-fpm swoole cron processes
-#             redis memcached postgresql mysql
-#   --disable           remove o driver (o exporter e as configurações do
+#             redis memcached postgresql mysql kubernetes
+#   --disable          remove o driver (o exporter e as configurações do
 #                       serviço são mantidos)
 #   --status-url URL    (apache) URL do mod_status; padrão http://127.0.0.1/server-status?auto
 #   --metrics-url URL   (swoole) URL do /metrics da aplicação; padrão http://127.0.0.1:9501/metrics
@@ -17,6 +17,8 @@
 #   --redis-addr URL    (redis) padrão redis://127.0.0.1:6379; com requirepass, passe a
 #                       senha em REDIS_PASSWORD (sudo REDIS_PASSWORD=... scripts/...)
 #   --yes               (docker) não pede confirmação para reiniciar o dockerd
+#   --ksm-url URL       (kubernetes) /metrics do kube-state-metrics; sem ela, o Service
+#                       é descoberto com kubectl (KUBECONFIG ou o admin.conf do nó)
 #
 # O que cada serviço recebe:
 #   nginx    stub_status em 127.0.0.1:8090 (conf.d) + prometheus-nginx-exporter em 127.0.0.1:9113
@@ -35,8 +37,10 @@
 #            (pg_monitor, autenticação peer pelo socket, sem senha)
 #   mysql      prometheus-mysqld-exporter em 127.0.0.1:9104 + usuário prometheus@localhost
 #            (auth_socket/unix_socket, sem senha; PROCESS, REPLICATION CLIENT, SELECT)
+#   kubernetes só o driver: exige o kube-state-metrics no cluster (ClusterIP do
+#            Service, alcançável a partir dos nós); ative em um único nó por cluster
 #
-# Todos os endpoints ficam apenas em loopback.
+# Todos os endpoints criados ficam apenas em loopback.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -45,7 +49,7 @@ ETC=/etc/$NAME
 DROPIN=$ETC/drivers.d
 SERVICE=${1:-}
 shift || true
-DISABLE=0 YES=0 STATUS_URL="http://127.0.0.1/server-status?auto" METRICS_URL=http://127.0.0.1:9501/metrics LISTEN=127.0.0.1:9256 WITH_IO=0 REDIS_ADDR=redis://127.0.0.1:6379
+DISABLE=0 YES=0 STATUS_URL="http://127.0.0.1/server-status?auto" METRICS_URL=http://127.0.0.1:9501/metrics LISTEN=127.0.0.1:9256 WITH_IO=0 REDIS_ADDR=redis://127.0.0.1:6379 KSM_URL=""
 while (( $# )); do
   case $1 in
     --disable) DISABLE=1 ;;
@@ -55,6 +59,7 @@ while (( $# )); do
     --listen) LISTEN=${2:?--listen requer um endereço}; shift ;;
     --with-io) WITH_IO=1 ;;
     --redis-addr) REDIS_ADDR=${2:?--redis-addr requer uma URL}; shift ;;
+    --ksm-url) KSM_URL=${2:?--ksm-url requer uma URL}; shift ;;
     *) echo "opção desconhecida: $1" >&2; exit 2 ;;
   esac
   shift
@@ -65,8 +70,8 @@ warn() { printf '\033[33mAVISO:\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[31mERRO:\033[0m %s\n' "$*" >&2; exit 1; }
 
 case $SERVICE in
-  nginx|apache|docker|php-fpm|swoole|cron|processes|redis|memcached|postgresql|mysql) ;;
-  -h|--help|"") sed -n '2,38p' "$0"; exit 0 ;;
+  nginx|apache|docker|php-fpm|swoole|cron|processes|redis|memcached|postgresql|mysql|kubernetes) ;;
+  -h|--help|"") sed -n '2,43p' "$0"; exit 0 ;;
   *) die "serviço desconhecido: $SERVICE (veja --help)" ;;
 esac
 [[ $EUID -eq 0 ]] || die "execute com sudo: sudo $0 $SERVICE"
@@ -351,6 +356,41 @@ setup_mysql() {
     die "prometheus-mysqld-exporter não reportou mysql_up 1 (journalctl -u prometheus-mysqld-exporter)"
 }
 
+# ---------------------------------------------------------------- kubernetes
+# Sem --ksm-url, procura o Service do kube-state-metrics (manifests oficiais e
+# chart do prometheus-community usam o mesmo label) e usa o ClusterIP, que o
+# kube-proxy roteia também a partir dos nós.
+setup_kubernetes() {
+  if [[ -z $KSM_URL ]]; then
+    # command -v devolve até um kubectl sem permissão de execução; o k3s e o
+    # microk8s trazem o próprio.
+    local kubectl=() p
+    if p=$(type -P kubectl) && [[ -x $p ]]; then kubectl=("$p")
+    elif command -v k3s >/dev/null; then kubectl=(k3s kubectl)
+    elif command -v microk8s >/dev/null; then kubectl=(microk8s kubectl)
+    else die "kubectl não encontrado (ou sem permissão de execução); informe o endereço com --ksm-url"
+    fi
+    local kc="${KUBECONFIG:-}" home
+    if [[ -z $kc ]]; then
+      home=$(getent passwd "${SUDO_USER:-root}" | cut -d: -f6)
+      for f in /etc/kubernetes/admin.conf /etc/rancher/k3s/k3s.yaml /etc/rancher/rke2/rke2.yaml "$home/.kube/config"; do
+        [[ -r $f ]] && { kc=$f; break; }
+      done
+    fi
+    [[ -n $kc ]] || die "nenhum kubeconfig encontrado; use KUBECONFIG=... ou --ksm-url"
+    local svc out
+    out=$("${kubectl[@]}" --kubeconfig "$kc" get svc -A -l app.kubernetes.io/name=kube-state-metrics \
+      -o jsonpath='{range .items[*]}{.spec.clusterIP}:{.spec.ports[0].port}{"\n"}{end}' 2>&1) ||
+      die "${kubectl[*]} não acessou o cluster com $kc: $(tail -1 <<<"$out")"
+    svc=$(head -1 <<<"$out")
+    [[ -n $svc ]] || die "kube-state-metrics não encontrado no cluster; instale-o (helm install kube-state-metrics prometheus-community/kube-state-metrics -n kube-system) ou use --ksm-url"
+    KSM_URL=http://$svc/metrics
+    say "kube-state-metrics encontrado em $KSM_URL"
+  fi
+  wait_for "$KSM_URL" '^kube_node_status_condition' 10 ||
+    die "kube-state-metrics não respondeu em $KSM_URL (este host alcança o ClusterIP? use --ksm-url com um NodePort ou port-forward)"
+}
+
 # ---------------------------------------------------------------- driver
 say "configurando $SERVICE"
 "setup_${SERVICE//-/_}"
@@ -380,6 +420,7 @@ tmp=$(mktemp)
 sed -e "s#host: local#host: $host#" "$TEMPLATE" > "$tmp"
 [[ $SERVICE == docker ]] && sed -i "s#127.0.0.1:9323#$DOCKER_METRICS#" "$tmp"
 [[ $SERVICE == swoole ]] && sed -i "s#http://127.0.0.1:9501/metrics#$METRICS_URL#" "$tmp"
+[[ $SERVICE == kubernetes ]] && sed -i "s#http://127.0.0.1:8080/metrics#$KSM_URL#" "$tmp"
 install -m 0644 "$tmp" "$DROPIN/$SERVICE.yaml"
 rm -f "$tmp"
 if ! restart_driver_service; then

@@ -361,3 +361,32 @@ func TestMySQLDriverFeatures(t *testing.T) {
 		t.Fatalf("taxas do MySQL incorretas: %v", got)
 	}
 }
+
+func TestKubernetesDriverFeatures(t *testing.T) {
+	e := NewEngine(loadDriver(t, "kubernetes.yaml").Metrics)
+	t0 := time.Unix(1000, 0)
+	gauges := map[string]float64{
+		`k8s_node_ready{node="node-a"}`:                               1,
+		`k8s_node_ready{node="node-b"}`:                               0, // Ready=unknown: nó perdido
+		`k8s_node_pressure{node="node-a",condition="MemoryPressure"}`: 0,
+		`k8s_node_pressure{node="node-a",condition="DiskPressure"}`:   1,
+		`k8s_node_pressure{node="node-b",condition="MemoryPressure"}`: 0,
+		`k8s_node_pressure{node="node-b",condition="DiskPressure"}`:   0,
+		// Só há séries de waiting_reason para containers esperando.
+		`k8s_containers_crashlooping{namespace="shop"}`:                 1,
+		`k8s_image_pull_errors{namespace="shop"}`:                       1,
+		`k8s_pods_unschedulable{namespace="shop"}`:                      1,
+		`k8s_pods_unschedulable{namespace="batch"}`:                     0,
+		`k8s_deployment_available{namespace="shop",deployment="api"}`:   1,
+		`k8s_deployment_progressing{namespace="shop",deployment="api"}`: 1,
+		`k8s_pvc_lost{namespace="shop"}`:                                1,
+		"k8s_pods_running":                                              2, "k8s_pods_pending": 1, "k8s_pods_failed": 1, "k8s_jobs_failed": 1,
+	}
+	checkFeatures(t, byMetric(e.Compute(snapshotFromFixture(t, "kubernetes.prom", t0, nil))), gauges)
+	got := byMetric(e.Compute(snapshotFromFixture(t, "kubernetes.prom", t0.Add(10*time.Second), map[string]float64{
+		"kube_pod_container_status_restarts_total": 1,
+	})))
+	gauges[`kube_pod_container_status_restarts_total{namespace="shop"}`] = 0.2
+	gauges[`kube_pod_container_status_restarts_total{namespace="batch"}`] = 0.1
+	checkFeatures(t, got, gauges)
+}

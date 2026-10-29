@@ -1,0 +1,59 @@
+# Amostra no formato do kubernetes/kube-state-metrics v2.
+# TYPE kube_node_status_condition gauge
+kube_node_status_condition{node="node-a",condition="Ready",status="true"} 1
+kube_node_status_condition{node="node-a",condition="Ready",status="false"} 0
+kube_node_status_condition{node="node-a",condition="Ready",status="unknown"} 0
+kube_node_status_condition{node="node-a",condition="MemoryPressure",status="true"} 0
+kube_node_status_condition{node="node-a",condition="MemoryPressure",status="false"} 1
+kube_node_status_condition{node="node-a",condition="DiskPressure",status="true"} 1
+kube_node_status_condition{node="node-a",condition="DiskPressure",status="false"} 0
+kube_node_status_condition{node="node-b",condition="Ready",status="true"} 0
+kube_node_status_condition{node="node-b",condition="Ready",status="false"} 0
+kube_node_status_condition{node="node-b",condition="Ready",status="unknown"} 1
+kube_node_status_condition{node="node-b",condition="MemoryPressure",status="true"} 0
+kube_node_status_condition{node="node-b",condition="MemoryPressure",status="false"} 1
+kube_node_status_condition{node="node-b",condition="DiskPressure",status="true"} 0
+kube_node_status_condition{node="node-b",condition="DiskPressure",status="false"} 1
+# TYPE kube_pod_status_phase gauge
+kube_pod_status_phase{namespace="shop",pod="api-7d9f-x1",uid="u1",phase="Pending"} 0
+kube_pod_status_phase{namespace="shop",pod="api-7d9f-x1",uid="u1",phase="Running"} 1
+kube_pod_status_phase{namespace="shop",pod="api-7d9f-x1",uid="u1",phase="Failed"} 0
+kube_pod_status_phase{namespace="shop",pod="api-7d9f-x2",uid="u2",phase="Pending"} 0
+kube_pod_status_phase{namespace="shop",pod="api-7d9f-x2",uid="u2",phase="Running"} 1
+kube_pod_status_phase{namespace="shop",pod="api-7d9f-x2",uid="u2",phase="Failed"} 0
+kube_pod_status_phase{namespace="shop",pod="worker-0",uid="u3",phase="Pending"} 1
+kube_pod_status_phase{namespace="shop",pod="worker-0",uid="u3",phase="Running"} 0
+kube_pod_status_phase{namespace="shop",pod="worker-0",uid="u3",phase="Failed"} 0
+kube_pod_status_phase{namespace="batch",pod="report-28812-q",uid="u4",phase="Pending"} 0
+kube_pod_status_phase{namespace="batch",pod="report-28812-q",uid="u4",phase="Running"} 0
+kube_pod_status_phase{namespace="batch",pod="report-28812-q",uid="u4",phase="Failed"} 1
+# TYPE kube_pod_status_scheduled gauge
+kube_pod_status_scheduled{namespace="shop",pod="api-7d9f-x1",uid="u1",condition="true"} 1
+kube_pod_status_scheduled{namespace="shop",pod="api-7d9f-x1",uid="u1",condition="false"} 0
+kube_pod_status_scheduled{namespace="shop",pod="worker-0",uid="u3",condition="true"} 0
+kube_pod_status_scheduled{namespace="shop",pod="worker-0",uid="u3",condition="false"} 1
+kube_pod_status_scheduled{namespace="batch",pod="report-28812-q",uid="u4",condition="true"} 1
+kube_pod_status_scheduled{namespace="batch",pod="report-28812-q",uid="u4",condition="false"} 0
+# TYPE kube_pod_container_status_waiting_reason gauge
+kube_pod_container_status_waiting_reason{namespace="shop",pod="api-7d9f-x2",uid="u2",container="api",reason="CrashLoopBackOff"} 1
+kube_pod_container_status_waiting_reason{namespace="shop",pod="api-7d9f-x2",uid="u2",container="sidecar",reason="ImagePullBackOff"} 1
+# TYPE kube_pod_container_status_restarts_total counter
+kube_pod_container_status_restarts_total{namespace="shop",pod="api-7d9f-x1",uid="u1",container="api"} 0
+kube_pod_container_status_restarts_total{namespace="shop",pod="api-7d9f-x2",uid="u2",container="api"} 14
+kube_pod_container_status_restarts_total{namespace="batch",pod="report-28812-q",uid="u4",container="report"} 2
+# TYPE kube_deployment_status_condition gauge
+kube_deployment_status_condition{namespace="shop",deployment="api",condition="Available",status="true"} 1
+kube_deployment_status_condition{namespace="shop",deployment="api",condition="Available",status="false"} 0
+kube_deployment_status_condition{namespace="shop",deployment="api",condition="Available",status="unknown"} 0
+kube_deployment_status_condition{namespace="shop",deployment="api",condition="Progressing",status="true"} 0
+kube_deployment_status_condition{namespace="shop",deployment="api",condition="Progressing",status="false"} 1
+kube_deployment_status_condition{namespace="shop",deployment="api",condition="Progressing",status="unknown"} 0
+# TYPE kube_persistentvolumeclaim_status_phase gauge
+kube_persistentvolumeclaim_status_phase{namespace="shop",persistentvolumeclaim="data-worker-0",phase="Bound"} 0
+kube_persistentvolumeclaim_status_phase{namespace="shop",persistentvolumeclaim="data-worker-0",phase="Lost"} 1
+kube_persistentvolumeclaim_status_phase{namespace="shop",persistentvolumeclaim="data-worker-0",phase="Pending"} 0
+# TYPE kube_job_failed gauge
+kube_job_failed{namespace="batch",job_name="report-28812",condition="true"} 1
+kube_job_failed{namespace="batch",job_name="report-28812",condition="false"} 0
+kube_job_failed{namespace="batch",job_name="report-28811",condition="true"} 0
+kube_job_failed{namespace="batch",job_name="report-28811",condition="false"} 1

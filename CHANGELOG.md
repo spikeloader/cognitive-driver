@@ -14,6 +14,11 @@ o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   `enable-service.sh redis|memcached|postgresql|mysql`. PostgreSQL e MySQL
   ganham um usuário de monitoramento sem senha (autenticação pelo socket
   local) e com permissões só de leitura.
+- Driver de Kubernetes (`ai-kubernetes-health`) sobre o kube-state-metrics:
+  nós NotReady ou sob pressão, CrashLoopBackOff, erros de imagem e de criação
+  de container, pods sem nó, Deployments indisponíveis ou com rollout travado,
+  PVCs perdidos e, por baseline, reinícios, pods por fase e Jobs com falha.
+  `enable-service.sh kubernetes` descobre o Service pelo kubectl ou usa `--ksm-url`.
 
 - Painel e textos dos eventos em português e inglês: seletor de idioma no
   topo (padrão pelo idioma do navegador), números e datas no formato do

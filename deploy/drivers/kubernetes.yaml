@@ -1,0 +1,248 @@
+# Driver do Kubernetes. Lê o kube-state-metrics (estado dos objetos do
+# cluster: nós, pods, deployments, jobs, PVCs). sudo scripts/enable-service.sh
+# kubernetes descobre o Service do kube-state-metrics pelo kubectl (ClusterIP,
+# alcançável a partir dos nós) ou usa --ksm-url. Basta um nó coletando por cluster.
+drivers:
+  - name: ai-kubernetes-health
+    version: 0.1.0
+    mode: observe_only
+    targets:
+      - host: local
+        url: http://127.0.0.1:8080/metrics
+    metrics:
+      # Nó fora do ar: Ready=true vale 0 quando o nó está NotReady ou Unknown.
+      - name: kube_node_status_condition
+        alias: k8s_node_ready
+        group_by: [node]
+        match: {condition: Ready, status: "true"}
+        rule: {equals: 1, severity: critical}
+        describe:
+          label: Nó do Kubernetes pronto
+          unit: bool
+          down:
+            cause: O kubelet parou de reportar ou reporta o nó como NotReady (kubelet ou runtime de containers parado, rede, disco ou memória esgotados, nó desligado).
+            recommendation: Ver kubectl describe node <nó> (Conditions e Events) e, no nó, systemctl status kubelet e journalctl -u kubelet -n 100.
+          en:
+            label: "Kubernetes node ready"
+            down:
+              cause: "The kubelet stopped reporting or reports the node as NotReady (kubelet or container runtime stopped, network, disk or memory exhausted, node powered off)."
+              recommendation: "Check kubectl describe node <node> (Conditions and Events) and, on the node, systemctl status kubelet and journalctl -u kubelet -n 100."
+      # Pressão de memória, disco ou PIDs: o kubelet passa a despejar pods.
+      - name: kube_node_status_condition
+        alias: k8s_node_pressure
+        group_by: [node, condition]
+        match: {condition: "MemoryPressure|DiskPressure|PIDPressure", status: "true"}
+        rule: {equals: 0, severity: high}
+        describe:
+          label: Pressão de recursos no nó do Kubernetes
+          unit: bool
+          up:
+            cause: O nó cruzou um limiar de despejo do kubelet (memória, disco ou PIDs); pods são despejados e novos pods não são agendados nele.
+            recommendation: Ver kubectl describe node <nó> e kubectl top pods -A --sort-by=memory; para disco, limpar imagens (crictl rmi --prune) e logs de containers.
+          en:
+            label: "Resource pressure on Kubernetes node"
+            up:
+              cause: "The node crossed a kubelet eviction threshold (memory, disk or PIDs); pods are evicted and new pods are not scheduled on it."
+              recommendation: "Check kubectl describe node <node> and kubectl top pods -A --sort-by=memory; for disk, prune images (crictl rmi --prune) and container logs."
+      # Containers em CrashLoopBackOff, por namespace.
+      - name: kube_pod_container_status_waiting_reason
+        alias: k8s_containers_crashlooping
+        group_by: [namespace]
+        match: {reason: CrashLoopBackOff}
+        rule: {above: 0, severity: high}
+        describe:
+          label: Containers em CrashLoopBackOff
+          unit: count
+          up:
+            cause: Containers terminam logo após iniciar e o kubelet espera cada vez mais para reiniciá-los (erro na aplicação, configuração, dependência fora do ar, OOMKilled, probe de liveness falhando).
+            recommendation: Listar com kubectl get pods -n <namespace> | grep CrashLoop, ver o motivo em kubectl describe pod (Last State, Exit Code) e os logs da execução anterior com kubectl logs --previous.
+          en:
+            label: "Containers in CrashLoopBackOff"
+            up:
+              cause: "Containers exit right after starting and the kubelet waits longer each time to restart them (application error, configuration, dependency down, OOMKilled, failing liveness probe)."
+              recommendation: "List them with kubectl get pods -n <namespace> | grep CrashLoop, see the reason in kubectl describe pod (Last State, Exit Code) and the logs of the previous run with kubectl logs --previous."
+      # Imagem que não baixa.
+      - name: kube_pod_container_status_waiting_reason
+        alias: k8s_image_pull_errors
+        group_by: [namespace]
+        match: {reason: "ImagePullBackOff|ErrImagePull|InvalidImageName"}
+        rule: {above: 0, severity: high}
+        describe:
+          label: Containers sem conseguir baixar a imagem
+          unit: count
+          up:
+            cause: O kubelet não consegue baixar a imagem (tag inexistente, registry fora do ar, credencial ausente no imagePullSecrets, limite de pulls).
+            recommendation: Ver os Events em kubectl describe pod (mensagem do registry), conferir o nome/tag da imagem e o imagePullSecrets do pod ou da ServiceAccount.
+          en:
+            label: "Containers unable to pull the image"
+            up:
+              cause: "The kubelet cannot pull the image (missing tag, registry down, credentials missing from imagePullSecrets, pull rate limit)."
+              recommendation: "Check the Events in kubectl describe pod (registry message), the image name/tag and the imagePullSecrets of the pod or ServiceAccount."
+      # Container que não pode ser criado (Secret/ConfigMap inexistente, comando inválido).
+      - name: kube_pod_container_status_waiting_reason
+        alias: k8s_container_config_errors
+        group_by: [namespace]
+        match: {reason: "CreateContainerConfigError|CreateContainerError"}
+        rule: {above: 0, severity: high}
+        describe:
+          label: Containers com erro de criação
+          unit: count
+          up:
+            cause: O container não pôde ser criado (Secret, ConfigMap ou chave referenciada não existe, ou o runtime rejeitou a especificação).
+            recommendation: Ver a mensagem em kubectl describe pod (Events) e conferir se os Secrets/ConfigMaps referenciados existem no namespace.
+          en:
+            label: "Containers failing to be created"
+            up:
+              cause: "The container could not be created: a referenced Secret, ConfigMap or key does not exist, or the runtime rejected the spec."
+              recommendation: "Check the message in kubectl describe pod (Events) and whether the referenced Secrets/ConfigMaps exist in the namespace."
+      # Pods que o scheduler não consegue colocar em nenhum nó.
+      - name: kube_pod_status_scheduled
+        alias: k8s_pods_unschedulable
+        group_by: [namespace]
+        match: {condition: "false"}
+        rule: {above: 0, severity: high}
+        describe:
+          label: Pods sem nó disponível
+          unit: count
+          up:
+            cause: Nenhum nó atende ao pod (CPU/memória requisitadas, nodeSelector/afinidade, taints, PVC preso a outra zona); com autoscaler, novos nós podem estar a caminho.
+            recommendation: Ver o motivo nos Events de kubectl describe pod (FailedScheduling) e a capacidade livre com kubectl describe nodes | grep -A8 'Allocated resources'.
+          en:
+            label: "Pods with no available node"
+            up:
+              cause: "No node fits the pod (requested CPU/memory, nodeSelector/affinity, taints, PVC bound to another zone); with an autoscaler, new nodes may be on the way."
+              recommendation: "See the reason in the Events of kubectl describe pod (FailedScheduling) and free capacity with kubectl describe nodes | grep -A8 'Allocated resources'."
+      # Deployment abaixo do mínimo de réplicas disponíveis (não dispara em rollout normal).
+      - name: kube_deployment_status_condition
+        alias: k8s_deployment_available
+        group_by: [namespace, deployment]
+        match: {condition: Available, status: "true"}
+        rule: {equals: 1, severity: critical}
+        describe:
+          label: Deployment disponível
+          unit: bool
+          down:
+            cause: Menos réplicas prontas que o mínimo do Deployment (pods caindo, readiness probe falhando, sem capacidade para agendar).
+            recommendation: Ver kubectl rollout status deployment/<nome> -n <namespace>, kubectl get pods -l <seletor> e os eventos dos pods que não ficam prontos.
+          en:
+            label: "Deployment available"
+            down:
+              cause: "Fewer ready replicas than the Deployment's minimum (pods crashing, failing readiness probe, no capacity to schedule)."
+              recommendation: "Check kubectl rollout status deployment/<name> -n <namespace>, kubectl get pods -l <selector> and the events of the pods that never become ready."
+      # Rollout parado: progressDeadlineSeconds estourado.
+      - name: kube_deployment_status_condition
+        alias: k8s_deployment_progressing
+        group_by: [namespace, deployment]
+        match: {condition: Progressing, status: "false"}
+        rule: {equals: 0, severity: high}
+        describe:
+          label: Rollout do Deployment travado
+          unit: bool
+          up:
+            cause: O rollout não avançou dentro do progressDeadlineSeconds (pods novos não ficam prontos, imagem não baixa, quota ou capacidade esgotada).
+            recommendation: Ver kubectl rollout status e kubectl describe deployment/<nome>; se a versão nova estiver quebrada, kubectl rollout undo deployment/<nome> -n <namespace>.
+          en:
+            label: "Deployment rollout stuck"
+            up:
+              cause: "The rollout made no progress within progressDeadlineSeconds (new pods never become ready, image cannot be pulled, quota or capacity exhausted)."
+              recommendation: "Check kubectl rollout status and kubectl describe deployment/<name>; if the new version is broken, kubectl rollout undo deployment/<name> -n <namespace>."
+      # Volume persistente perdido pelo claim.
+      - name: kube_persistentvolumeclaim_status_phase
+        alias: k8s_pvc_lost
+        group_by: [namespace]
+        match: {phase: Lost}
+        rule: {above: 0, severity: critical}
+        describe:
+          label: PVCs com volume perdido
+          unit: count
+          up:
+            cause: O PersistentVolume ligado ao claim foi removido ou ficou inacessível; pods que usam o PVC não iniciam.
+            recommendation: Ver kubectl describe pvc -n <namespace>, o PV correspondente e o provisionador de armazenamento (CSI); restaurar o volume ou recriar o claim a partir de backup.
+          en:
+            label: "PVCs with a lost volume"
+            up:
+              cause: "The PersistentVolume bound to the claim was deleted or became inaccessible; pods using the PVC will not start."
+              recommendation: "Check kubectl describe pvc -n <namespace>, the matching PV and the storage provisioner (CSI); restore the volume or recreate the claim from a backup."
+      # Reinícios de container por namespace (instabilidade antes do CrashLoopBackOff).
+      - name: kube_pod_container_status_restarts_total
+        group_by: [namespace]
+        min_stddev: 0.01
+        describe:
+          label: Reinícios de container no Kubernetes
+          unit: per_second
+          up:
+            cause: Containers reiniciando mais que o habitual (OOMKilled, liveness probe falhando, erro na aplicação após deploy).
+            recommendation: Encontrar os pods com kubectl get pods -n <namespace> --sort-by='.status.containerStatuses[0].restartCount' e ver o Last State em kubectl describe pod.
+          en:
+            label: "Kubernetes container restarts"
+            up:
+              cause: "Containers restarting more than usual (OOMKilled, failing liveness probe, application error after a deploy)."
+              recommendation: "Find the pods with kubectl get pods -n <namespace> --sort-by='.status.containerStatuses[0].restartCount' and check Last State in kubectl describe pod."
+      # Pods por fase no cluster.
+      - name: kube_pod_status_phase
+        alias: k8s_pods_running
+        match: {phase: Running}
+        min_stddev: 1
+        describe:
+          label: Pods em execução no Kubernetes
+          unit: count
+          down:
+            cause: Pods deixaram de rodar (nó fora do ar, despejo por pressão de recursos, scale down ou exclusão).
+            recommendation: Comparar kubectl get pods -A --field-selector=status.phase!=Running com os eventos recentes (kubectl get events -A --sort-by=.lastTimestamp).
+          up:
+            cause: Mais pods que o habitual (HPA escalando, rollout em andamento, Jobs em massa).
+            recommendation: Ver kubectl get hpa -A e os rollouts e Jobs recentes.
+          en:
+            label: "Running pods in Kubernetes"
+            down:
+              cause: "Pods stopped running (node down, eviction due to resource pressure, scale down or deletion)."
+              recommendation: "Compare kubectl get pods -A --field-selector=status.phase!=Running with recent events (kubectl get events -A --sort-by=.lastTimestamp)."
+            up:
+              cause: "More pods than usual (HPA scaling out, rollout in progress, mass Jobs)."
+              recommendation: "Check kubectl get hpa -A and recent rollouts and Jobs."
+      - name: kube_pod_status_phase
+        alias: k8s_pods_pending
+        match: {phase: Pending}
+        min_stddev: 1
+        describe:
+          label: Pods pendentes no Kubernetes
+          unit: count
+          up:
+            cause: Pods esperando para rodar acima do normal (sem capacidade para agendar, imagem baixando ou falhando, volume não montado).
+            recommendation: Ver kubectl get pods -A --field-selector=status.phase=Pending e os Events de cada um em kubectl describe pod.
+          en:
+            label: "Pending pods in Kubernetes"
+            up:
+              cause: "More pods waiting to run than usual (no capacity to schedule, image pulling or failing, volume not mounted)."
+              recommendation: "Check kubectl get pods -A --field-selector=status.phase=Pending and the Events of each one in kubectl describe pod."
+      - name: kube_pod_status_phase
+        alias: k8s_pods_failed
+        match: {phase: Failed}
+        min_stddev: 1
+        describe:
+          label: Pods com falha no Kubernetes
+          unit: count
+          up:
+            cause: Mais pods terminaram com falha (despejos por pressão de recursos, Jobs falhando, pods de nós perdidos).
+            recommendation: Ver kubectl get pods -A --field-selector=status.phase=Failed e o motivo (Reason/Message) em kubectl describe pod; despejos indicam pressão no nó.
+          en:
+            label: "Failed pods in Kubernetes"
+            up:
+              cause: "More pods ended in failure (evictions due to resource pressure, failing Jobs, pods from lost nodes)."
+              recommendation: "Check kubectl get pods -A --field-selector=status.phase=Failed and the Reason/Message in kubectl describe pod; evictions point to node pressure."
+      # Jobs com falha (inclui os criados por CronJobs).
+      - name: kube_job_failed
+        alias: k8s_jobs_failed
+        match: {condition: "true"}
+        min_stddev: 1
+        describe:
+          label: Jobs com falha no Kubernetes
+          unit: count
+          up:
+            cause: Jobs esgotaram o backoffLimit ou o activeDeadlineSeconds (erro no comando, dependência fora do ar, OOMKilled).
+            recommendation: Ver kubectl get jobs -A, kubectl describe job/<nome> e os logs com kubectl logs job/<nome> -n <namespace>.
+          en:
+            label: "Failed Jobs in Kubernetes"
+            up:
+              cause: "Jobs exhausted their backoffLimit or activeDeadlineSeconds (command error, dependency down, OOMKilled)."
+              recommendation: "Check kubectl get jobs -A, kubectl describe job/<name> and the logs with kubectl logs job/<name> -n <namespace>."
